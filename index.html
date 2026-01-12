@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>To the Moon Manager</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="main-container">
+        <div class="game-section">
+            <h1>To the Moon Manager</h1>
+            <div id="spaceship-container">
+                <div class="spaceship" id="spaceship-visual">🚀</div>
+                <p id="level-indicator">Level 1: Rusty Pod</p>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="xp-bar"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="task-section">
+            <div class="input-group">
+                <input type="text" id="task-input" placeholder="Enter a new mission...">
+                <button id="add-btn">Deploy</button>
+            </div>
+            <ul id="task-list">
+                </ul>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
