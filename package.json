@@ -1,13 +1,27 @@
 {
   "name": "to-the-moon-manager",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Gamified life manager prototype",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js",
+    "dev": "node server.js",
+    "serve-static": "npx serve ."
   },
-  "keywords": [],
+  "keywords": [
+    "productivity",
+    "gamification",
+    "tasks"
+  ],
   "author": "",
   "license": "ISC",
-  "type": "commonjs"
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "node-fetch": "^2.6.12",
+    "nodemailer": "^6.9.15",
+    "sqlite3": "^5.1.7",
+    "stripe": "^14.25.0"
+  }
 }

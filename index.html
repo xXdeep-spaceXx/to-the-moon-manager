@@ -3,32 +3,436 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>To the Moon Manager</title>
+    <title>To the Moon</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="main-container">
-        <div class="game-section">
-            <h1>To the Moon Manager</h1>
-            <div id="spaceship-container">
-                <div class="spaceship" id="spaceship-visual">🚀</div>
-                <p id="level-indicator">Level 1: Rusty Pod</p>
-                <div class="progress-bar">
-                    <div class="progress-fill" id="xp-bar"></div>
-                </div>
-            </div>
-        </div>
+    <canvas id="galaxy-canvas"></canvas>
+    <div id="ambient-orb"></div>
 
-        <div class="task-section">
-            <div class="input-group">
-                <input type="text" id="task-input" placeholder="Enter a new mission...">
-                <button id="add-btn">Deploy</button>
+    <!-- ─── AUTH ─────────────────────────────────────────────────────── -->
+    <div class="screen" id="screen-auth">
+        <div class="auth-container">
+            <div class="auth-logo">
+                <span class="logo-icon">🌙</span>
+                <h1>To the Moon</h1>
+                <p>Turn your life into a mission map.</p>
             </div>
-            <ul id="task-list">
-                </ul>
+            <div class="auth-card">
+                <div class="auth-tabs">
+                    <button class="auth-tab active" data-tab="login">Sign In</button>
+                    <button class="auth-tab" data-tab="signup">Create Account</button>
+                </div>
+                <input type="email" id="auth-email" placeholder="Email address" autocomplete="email">
+                <input type="password" id="auth-password" placeholder="Password" autocomplete="current-password">
+                <div id="auth-form-login">
+                    <button id="login-btn" class="btn-primary btn-full">Sign In</button>
+                    <button id="reset-btn" class="btn-ghost btn-full">Forgot Password?</button>
+                </div>
+                <div id="auth-form-signup" class="hidden">
+                    <button id="signup-btn" class="btn-primary btn-full">Create Account</button>
+                </div>
+                <div class="auth-message" id="auth-message"></div>
+            </div>
         </div>
     </div>
 
+    <!-- ─── APP SHELL ─────────────────────────────────────────────────── -->
+    <div class="app-shell hidden" id="app-shell">
+
+        <!-- Sidebar icon-rail -->
+        <nav class="sidebar" id="sidebar">
+            <div class="sidebar-logo">
+                <span class="sidebar-logo-icon">🌙</span>
+            </div>
+
+            <div class="nav-items">
+                <button class="nav-item active" data-page="dashboard" data-tooltip="Dashboard">
+                    <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h3a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h3a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>
+                </button>
+                <button class="nav-item" data-page="missions" data-tooltip="Missions">
+                    <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                </button>
+                <button class="nav-item" data-page="epics" data-tooltip="Epic Missions">
+                    <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                </button>
+                <button class="nav-item" data-page="achievements" data-tooltip="Achievements">
+                    <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/></svg>
+                </button>
+                <button class="nav-item" data-page="hall" data-tooltip="Hall of Fame">
+                    <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 2a2 2 0 00-2 2v14l3.5-2 3.5 2 3.5-2 3.5 2V4a2 2 0 00-2-2H5zm4.707 3.707a1 1 0 00-1.414-1.414l-3 3a1 1 0 000 1.414l3 3a1 1 0 001.414-1.414L8.414 9H10a3 3 0 013 3v1a1 1 0 102 0v-1a5 5 0 00-5-5H8.414l1.293-1.293z" clip-rule="evenodd"/></svg>
+                </button>
+                <button class="nav-item" data-page="profile" data-tooltip="Profile">
+                    <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
+                </button>
+                <button class="nav-item" data-page="pro" data-tooltip="Pro">
+                    <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z"/></svg>
+                </button>
+                <button class="nav-item" data-page="roadmap" data-tooltip="Roadmap">
+                    <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.293.707L6 18.414V5.586L3.707 3.293zM17.707 5.293L14 1.586v12.828l2.293 2.293A1 1 0 0018 16V6a1 1 0 00-.293-.707z" clip-rule="evenodd"/></svg>
+                </button>
+
+                <div class="nav-divider"></div>
+
+                <button class="nav-item" data-page="habits" data-tooltip="Habits">
+                    <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                </button>
+                <button class="nav-item" data-page="focus" data-tooltip="Focus Timer">
+                    <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
+                </button>
+                <button class="nav-item" data-page="quests" data-tooltip="Daily Quests">
+                    <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                </button>
+
+                <div class="nav-divider"></div>
+
+                <button class="nav-item" data-page="skills" data-tooltip="Skill Tree">
+                    <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+                </button>
+                <button class="nav-item" data-page="loot" data-tooltip="Loot">
+                    <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 5a3 3 0 015-2.236A3 3 0 0114.83 6H16a2 2 0 110 4h-5V9a1 1 0 10-2 0v1H4a2 2 0 110-4h1.17C5.06 5.687 5 5.35 5 5zm4 1V5a1 1 0 10-1 1h1zm3 0a1 1 0 10-1-1v1h1z" clip-rule="evenodd"/><path d="M9 11H3v5a2 2 0 002 2h4v-7zM11 18h4a2 2 0 002-2v-5h-6v7z"/></svg>
+                </button>
+                <button class="nav-item" data-page="mood" data-tooltip="Mood &amp; Energy">
+                    <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                </button>
+            </div>
+
+            <button class="nav-item logout-item" id="logout-btn" data-tooltip="Sign Out">
+                <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg>
+            </button>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+
+            <!-- ── DASHBOARD ──────────────────────────────────────────── -->
+            <div class="page active" id="page-dashboard">
+
+                <!-- Hero: editorial left + living orb right -->
+                <div class="dash-hero">
+                    <div class="dash-hero-left">
+                        <p class="page-eyebrow">Mission Control</p>
+                        <div class="dash-level-row">
+                            <span class="dash-level-num" id="level-indicator">1</span>
+                            <canvas id="spaceship-canvas" width="72" height="72" class="dash-ship-canvas"></canvas>
+                        </div>
+                        <div class="dash-ship-name" id="ship-name">Rusty Pod</div>
+                        <div class="dash-level-label">CURRENT VESSEL</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="xp-bar"></div>
+                        </div>
+                        <div class="dash-xp-meta">
+                            <span class="dash-xp-label">XP Progress</span>
+                            <span class="dash-streak-label" id="streak-indicator"></span>
+                        </div>
+                        <div class="dash-stats-row">
+                            <div class="dash-stat">
+                                <div class="dash-stat-num" id="total-completions">0</div>
+                                <div class="dash-stat-label">Missions</div>
+                            </div>
+                            <div class="dash-stat-div"></div>
+                            <div class="dash-stat">
+                                <div class="dash-stat-num" id="streak-number">0</div>
+                                <div class="dash-stat-label">Day Streak</div>
+                            </div>
+                            <div class="dash-stat-div"></div>
+                            <div class="dash-stat">
+                                <div class="dash-stat-num" id="active-tasks-count">0</div>
+                                <div class="dash-stat-label">Active</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="dash-hero-right">
+                        <canvas id="orb-canvas"></canvas>
+                    </div>
+                </div>
+
+                <div class="conflict-banner hidden" id="conflict-banner">
+                    <div class="conflict-title">⚠ Sync Conflict Detected</div>
+                    <div class="conflict-compare">
+                        <div><h4>Local</h4><div id="conflict-local"></div><button id="keep-local" class="btn-secondary">Keep Local</button></div>
+                        <div><h4>Server</h4><div id="conflict-remote"></div><button id="keep-remote" class="btn-secondary">Use Server</button></div>
+                    </div>
+                </div>
+
+                <div class="section-card">
+                    <div class="section-label">Insights</div>
+                    <div id="recommendations" class="insight-text"></div>
+                    <div id="stats" class="insight-text muted"></div>
+                </div>
+            </div>
+
+            <!-- ── MISSIONS ───────────────────────────────────────────── -->
+            <div class="page hidden" id="page-missions">
+                <div class="page-header">
+                    <p class="page-eyebrow">Task Manager</p>
+                    <h1>Daily Missions</h1>
+                    <p class="page-subtitle">Every task is fuel for the journey.</p>
+                </div>
+                <div class="section-card">
+                    <div class="section-label">New Mission</div>
+                    <div class="input-row">
+                        <input type="text" id="task-input" placeholder="Enter a new mission...">
+                        <button id="add-btn" class="btn-primary">Deploy</button>
+                    </div>
+                    <div class="meta-row">
+                        <select id="task-category">
+                            <option value="life">🌱 Life</option>
+                            <option value="work">💼 Work</option>
+                            <option value="health">❤️ Health</option>
+                            <option value="learning">📚 Learning</option>
+                            <option value="finance">💰 Finance</option>
+                        </select>
+                        <select id="task-difficulty">
+                            <option value="easy">Easy</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="hard">Hard</option>
+                        </select>
+                        <select id="task-priority">
+                            <option value="low">Low Priority</option>
+                            <option value="normal" selected>Normal</option>
+                            <option value="high">High Priority</option>
+                        </select>
+                    </div>
+                    <div class="row-gap">
+                        <button id="export-btn" class="btn-secondary">Export</button>
+                        <label class="btn-secondary file-label">Import <input type="file" id="import-input" accept="application/json" /></label>
+                    </div>
+                </div>
+                <ul id="task-list"></ul>
+            </div>
+
+            <!-- ── EPICS ──────────────────────────────────────────────── -->
+            <div class="page hidden" id="page-epics">
+                <div class="page-header">
+                    <p class="page-eyebrow">Long Horizon Goals</p>
+                    <h1>Epic Missions</h1>
+                    <p class="page-subtitle">Big goals, broken into steps.</p>
+                </div>
+                <div class="section-card">
+                    <div class="section-label">Create Epic</div>
+                    <div class="input-row">
+                        <input type="text" id="epic-input" placeholder="Name a big mission...">
+                        <button id="add-epic" class="btn-primary">Create</button>
+                        <button id="plan-epic" class="btn-premium">AI Plan ✦</button>
+                    </div>
+                    <div class="input-row">
+                        <input type="text" id="subtask-input" placeholder="Add a subtask to selected epic...">
+                        <button id="add-subtask" class="btn-secondary">Add Subtask</button>
+                    </div>
+                    <div class="hint-row" id="epic-hint">Select an epic below to add subtasks.</div>
+                </div>
+                <div id="epic-list"></div>
+            </div>
+
+            <!-- ── ACHIEVEMENTS ───────────────────────────────────────── -->
+            <div class="page hidden" id="page-achievements">
+                <div class="page-header">
+                    <p class="page-eyebrow">Progress Unlocked</p>
+                    <h1>Achievements</h1>
+                    <p class="page-subtitle">Milestones along your journey.</p>
+                </div>
+                <div id="achievements"></div>
+            </div>
+
+            <!-- ── HALL OF FAME ───────────────────────────────────────── -->
+            <div class="page hidden" id="page-hall">
+                <div class="page-header">
+                    <p class="page-eyebrow">Legendary Completions</p>
+                    <h1>Hall of Fame</h1>
+                    <p class="page-subtitle">Your greatest victories, immortalised.</p>
+                </div>
+                <div class="section-card">
+                    <div class="section-label">Add Token</div>
+                    <div class="input-row">
+                        <input type="text" id="hof-input" placeholder="Describe a milestone...">
+                        <button id="hof-add" class="btn-primary">Add Token</button>
+                        <button id="hof-ai" class="btn-premium">AI Token ✦</button>
+                    </div>
+                </div>
+                <div id="hall-of-fame"></div>
+            </div>
+
+            <!-- ── PROFILE ────────────────────────────────────────────── -->
+            <div class="page hidden" id="page-profile">
+                <div class="page-header">
+                    <p class="page-eyebrow">Your Identity</p>
+                    <h1>Profile</h1>
+                    <p class="page-subtitle">Your public captain identity.</p>
+                </div>
+                <div class="section-card">
+                    <div class="section-label">Your Profile</div>
+                    <div class="form-stack">
+                        <input type="text" id="profile-name" placeholder="Display name">
+                        <input type="text" id="profile-tagline" placeholder="Short bio">
+                    </div>
+                    <div class="toggle-row">
+                        <label class="switch"><input type="checkbox" id="profile-public"><span class="slider"></span></label>
+                        <span class="toggle-label">Share Hall of Fame publicly</span>
+                    </div>
+                    <button id="save-profile" class="btn-primary">Save Profile</button>
+                    <div class="profile-preview" id="profile-preview"></div>
+                </div>
+                <div class="section-card">
+                    <div class="section-label">Similar Captains</div>
+                    <div id="similar-users"></div>
+                </div>
+                <div class="section-card">
+                    <div class="section-label">Friends</div>
+                    <div class="input-row">
+                        <input type="email" id="invite-email" placeholder="Invite by email">
+                        <button id="invite-btn" class="btn-secondary">Send Invite</button>
+                    </div>
+                    <div id="friends-list"></div>
+                </div>
+                <div class="section-card">
+                    <div class="section-label">Challenges</div>
+                    <div class="input-row">
+                        <input type="text" id="challenge-title" placeholder="Challenge title">
+                        <input type="text" id="challenge-goal" placeholder="Goal">
+                        <button id="create-challenge" class="btn-secondary">Create</button>
+                    </div>
+                    <div id="challenge-list"></div>
+                </div>
+            </div>
+
+            <!-- ── PRO ────────────────────────────────────────────────── -->
+            <div class="page hidden" id="page-pro">
+                <div class="page-header">
+                    <p class="page-eyebrow">Unlock Everything</p>
+                    <h1>Pro Upgrades</h1>
+                    <p class="page-subtitle">Unlock your full potential.</p>
+                </div>
+                <div class="premium-grid">
+                    <div class="premium-card locked" data-feature="advancedInsights">
+                        <div class="premium-icon">📊</div>
+                        <h3>Advanced Insights</h3>
+                        <p>Trends, productivity heatmaps, and habit predictions.</p>
+                        <button class="btn-premium">Upgrade ✦</button>
+                    </div>
+                    <div class="premium-card locked" data-feature="aiPlanner">
+                        <div class="premium-icon">🤖</div>
+                        <h3>AI Mission Planner</h3>
+                        <p>Turn big goals into actionable steps with AI.</p>
+                        <button class="btn-premium">Upgrade ✦</button>
+                    </div>
+                    <div class="premium-card locked" data-feature="cosmetics">
+                        <div class="premium-icon">🎨</div>
+                        <h3>Cosmetics</h3>
+                        <p>Ship skins, animated badges, and custom themes.</p>
+                        <button class="btn-premium">Upgrade ✦</button>
+                    </div>
+                    <div class="premium-card">
+                        <div class="premium-icon">🤝</div>
+                        <h3>Accountability</h3>
+                        <p>Community challenges and daily reminders. Free.</p>
+                        <button id="start-challenge" class="btn-secondary">Start Challenge</button>
+                    </div>
+                    <div class="premium-card locked" data-feature="coaching">
+                        <div class="premium-icon">🧭</div>
+                        <h3>Coaching</h3>
+                        <p>Personalized guidance and weekly check-ins.</p>
+                        <button class="btn-premium">Upgrade ✦</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── ROADMAP ─────────────────────────────────────────────── -->
+            <div class="page hidden" id="page-roadmap">
+                <div class="page-header">
+                    <p class="page-eyebrow">Navigate Your Journey</p>
+                    <h1>Roadmap</h1>
+                    <p class="page-subtitle">Chart your course — planet by planet, all the way to the Moon.</p>
+                </div>
+                <div class="roadmap-wrap">
+                    <canvas id="roadmap-canvas"></canvas>
+                    <div class="roadmap-legend">
+                        <span class="legend-item"><span class="legend-swatch" style="background:#1a78cc;border-radius:50%"></span>Earth</span>
+                        <span class="legend-item"><span class="legend-swatch legend-pulse" style="border-radius:50%"></span>Next</span>
+                        <span class="legend-item"><span class="legend-swatch" style="background:rgba(255,255,255,0.12)"></span>Pending</span>
+                        <span class="legend-item"><span class="legend-swatch" style="background:#c8c8a8;border-radius:50%"></span>Moon 🌙</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── HABITS ──────────────────────────────────────────────── -->
+            <div class="page hidden" id="page-habits">
+                <div class="page-header">
+                    <p class="page-eyebrow">Daily Rituals</p>
+                    <h1>Habits</h1>
+                    <p class="page-subtitle">Small daily actions that compound into greatness.</p>
+                </div>
+                <div id="habit-add-form"></div>
+                <div id="habit-today"></div>
+                <div id="habit-history"></div>
+            </div>
+
+            <!-- ── FOCUS TIMER ─────────────────────────────────────────── -->
+            <div class="page hidden" id="page-focus">
+                <div class="page-header">
+                    <p class="page-eyebrow">Deep Work</p>
+                    <h1>Focus Timer</h1>
+                    <p class="page-subtitle">25 minutes of pure momentum.</p>
+                </div>
+                <div id="focus-timer-container"></div>
+                <div id="focus-history"></div>
+            </div>
+
+            <!-- ── DAILY QUESTS ────────────────────────────────────────── -->
+            <div class="page hidden" id="page-quests">
+                <div class="page-header">
+                    <p class="page-eyebrow">Combat Zone</p>
+                    <h1>Daily Quests</h1>
+                    <p class="page-subtitle">New challenges every day. Boss resets every week.</p>
+                </div>
+                <div id="boss-section"></div>
+                <div id="quests-list"></div>
+            </div>
+
+            <!-- ── SKILL TREE ──────────────────────────────────────────── -->
+            <div class="page hidden" id="page-skills">
+                <div class="page-header">
+                    <p class="page-eyebrow">Character Progression</p>
+                    <h1>Skill Tree</h1>
+                    <p class="page-subtitle">Your life domains leveling up in real time.</p>
+                </div>
+                <div id="skill-tree-container"></div>
+            </div>
+
+            <!-- ── LOOT ───────────────────────────────────────────────── -->
+            <div class="page hidden" id="page-loot">
+                <div class="page-header">
+                    <p class="page-eyebrow">Inventory</p>
+                    <h1>Loot</h1>
+                    <p class="page-subtitle">Rewards earned from completing missions.</p>
+                </div>
+                <div id="loot-drop-notification"></div>
+                <div id="loot-inventory"></div>
+            </div>
+
+            <!-- ── MOOD ───────────────────────────────────────────────── -->
+            <div class="page hidden" id="page-mood">
+                <div class="page-header">
+                    <p class="page-eyebrow">Wellbeing Tracker</p>
+                    <h1>Mood &amp; Energy</h1>
+                    <p class="page-subtitle">Track how you feel. Discover when you thrive.</p>
+                </div>
+                <div id="mood-checkin"></div>
+                <div id="mood-history"></div>
+            </div>
+
+        </main>
+    </div>
+
     <script src="script.js"></script>
+    <script src="habits.js"></script>
+    <script src="focus.js"></script>
+    <script src="quests.js"></script>
+    <script src="skills.js"></script>
+    <script src="loot.js"></script>
+    <script src="mood.js"></script>
 </body>
 </html>
