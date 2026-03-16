@@ -107,78 +107,113 @@ window.APP = {
     modules:           {}
 };
 
-// ─── Galaxy Canvas ────────────────────────────────────────────────────────────
+// ─── Galaxy Canvas (Three.js) ─────────────────────────────────────────────────
 function initGalaxy() {
     const canvas = document.getElementById("galaxy-canvas");
-    const ctx = canvas.getContext("2d");
-    let stars = [];
+    if (!canvas || !window.THREE) return;
 
-    function createStars() {
-        stars = Array.from({ length: 280 }, () => ({
-            x: Math.random() * canvas.width,
-            y: Math.random() * canvas.height,
-            r: Math.random() * 1.4 + 0.15,
-            alpha: Math.random() * 0.65 + 0.15,
-            twinkleSpeed: Math.random() * 0.014 + 0.003,
-            twinkleOffset: Math.random() * Math.PI * 2,
-            drift: Math.random() * 0.04 + 0.008,
-        }));
-    }
+    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setClearColor(0x000000, 0);
+
+    const scene  = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 3000);
+    camera.position.z = 600;
 
     function resize() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-        createStars();
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
     }
-
     window.addEventListener("resize", resize);
     resize();
 
-    let frame = 0;
+    // ── main star field ──────────────────────────────────────────────────────
+    const starCount  = 4500;
+    const starPos    = new Float32Array(starCount * 3);
+    const starColor  = new Float32Array(starCount * 3);
+    const starSize   = new Float32Array(starCount);
 
-    const nebulae = [
-        { cx: 0.15, cy: 0.22, r: 0.48, color: "10,132,255",  a: 0.065 },
-        { cx: 0.85, cy: 0.12, r: 0.42, color: "191,90,242",  a: 0.07  },
-        { cx: 0.55, cy: 0.88, r: 0.5,  color: "255,55,95",   a: 0.05  },
-        { cx: 0.3,  cy: 0.65, r: 0.35, color: "48,209,88",   a: 0.035 },
-        { cx: 0.75, cy: 0.55, r: 0.3,  color: "255,159,10",  a: 0.03  },
-    ];
-
-    function draw() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        const w = canvas.width, h = canvas.height;
-
-        nebulae.forEach(({ cx, cy, r, color, a }) => {
-            const g = ctx.createRadialGradient(w * cx, h * cy, 0, w * cx, h * cy, w * r);
-            g.addColorStop(0, `rgba(${color},${a})`);
-            g.addColorStop(0.5, `rgba(${color},${a * 0.4})`);
-            g.addColorStop(1, "transparent");
-            ctx.fillStyle = g;
-            ctx.fillRect(0, 0, w, h);
-        });
-
-        stars.forEach((s) => {
-            const t = Math.sin(frame * s.twinkleSpeed + s.twinkleOffset);
-            const alpha = s.alpha * (0.6 + 0.4 * t);
-            ctx.beginPath();
-            ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(255,255,255,${alpha.toFixed(3)})`;
-            ctx.fill();
-            s.y -= s.drift;
-            if (s.y < -2) { s.y = h + 2; s.x = Math.random() * w; }
-        });
-
-        frame++;
-        requestAnimationFrame(draw);
+    for (let i = 0; i < starCount; i++) {
+        // distribute in a large sphere volume
+        const r   = 400 + Math.random() * 1200;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const th  = Math.random() * Math.PI * 2;
+        starPos[i*3]   = r * Math.sin(phi) * Math.cos(th);
+        starPos[i*3+1] = r * Math.sin(phi) * Math.sin(th);
+        starPos[i*3+2] = r * Math.cos(phi);
+        // slightly warm/cool tint
+        const warm = Math.random();
+        starColor[i*3]   = 0.85 + warm * 0.15;
+        starColor[i*3+1] = 0.85 + (1 - warm) * 0.05;
+        starColor[i*3+2] = 0.90 + Math.random() * 0.10;
+        starSize[i] = Math.random() * 1.8 + 0.4;
     }
 
-    draw();
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute("position", new THREE.BufferAttribute(starPos, 3));
+    starGeo.setAttribute("color",    new THREE.BufferAttribute(starColor, 3));
+    starGeo.setAttribute("size",     new THREE.BufferAttribute(starSize, 1));
+
+    const starMat = new THREE.PointsMaterial({
+        size: 1.4, vertexColors: true, transparent: true,
+        opacity: 0.85, sizeAttenuation: true
+    });
+    const stars = new THREE.Points(starGeo, starMat);
+    scene.add(stars);
+
+    // ── nebula clusters ──────────────────────────────────────────────────────
+    const nebulaDefs = [
+        { hex: 0xff6520, n: 360, spread: 380, pos: [-500,  200, -400] },  // orange — dominant
+        { hex: 0xbf5af2, n: 260, spread: 300, pos: [ 600, -150, -500] },  // purple
+        { hex: 0xff9040, n: 220, spread: 280, pos: [ 200,  400, -300] },  // warm orange
+        { hex: 0x0a84ff, n: 180, spread: 260, pos: [ 100, -500, -200] },  // blue accent
+        { hex: 0xff6520, n: 160, spread: 220, pos: [ 450,  350, -500] },  // orange echo
+        { hex: 0x7c3aed, n: 140, spread: 200, pos: [-300, -300, -600] },  // deep purple
+    ];
+
+    nebulaDefs.forEach(({ hex, n, spread, pos }) => {
+        const geo = new THREE.BufferGeometry();
+        const p   = new Float32Array(n * 3);
+        const c   = new Float32Array(n * 3);
+        const s   = new Float32Array(n);
+        const col = new THREE.Color(hex);
+        for (let i = 0; i < n; i++) {
+            p[i*3]   = pos[0] + (Math.random() - 0.5) * spread;
+            p[i*3+1] = pos[1] + (Math.random() - 0.5) * spread;
+            p[i*3+2] = pos[2] + (Math.random() - 0.5) * spread;
+            const br = 0.3 + Math.random() * 0.7;
+            c[i*3]   = col.r * br;
+            c[i*3+1] = col.g * br;
+            c[i*3+2] = col.b * br;
+            s[i] = Math.random() * 4 + 1.5;
+        }
+        geo.setAttribute("position", new THREE.BufferAttribute(p, 3));
+        geo.setAttribute("color",    new THREE.BufferAttribute(c, 3));
+        geo.setAttribute("size",     new THREE.BufferAttribute(s, 1));
+        scene.add(new THREE.Points(geo, new THREE.PointsMaterial({
+            size: 3.5, vertexColors: true, transparent: true,
+            opacity: 0.28, sizeAttenuation: true
+        })));
+    });
+
+    // ── animate ──────────────────────────────────────────────────────────────
+    let t = 0;
+    (function animate() {
+        requestAnimationFrame(animate);
+        stars.rotation.y = t * 0.00008;
+        stars.rotation.x = t * 0.00003;
+        camera.position.x = Math.sin(t * 0.0004) * 30;
+        camera.position.y = Math.cos(t * 0.0003) * 20;
+        renderer.render(scene, camera);
+        t++;
+    })();
 }
 
 // ─── Page Router ─────────────────────────────────────────────────────────────
 // Per-page accent colors [R, G, B]
 const PAGE_ACCENTS = {
-    dashboard:    [10,  132, 255],
+    dashboard:    [255, 101, 32],
     missions:     [48,  209, 88],
     epics:        [191, 90,  242],
     achievements: [255, 159, 10],
@@ -194,7 +229,71 @@ const PAGE_ACCENTS = {
     mood:         [255, 55,  95],
 };
 
+let _currentPage = 'dashboard';
+
+function positionOrb(name, animate) {
+    const orb = document.getElementById('orb-wrap');
+    if (!orb) return;
+
+    // Disable transition for instant placement (first load)
+    if (!animate) orb.style.transition = 'none';
+
+    if (name === 'dashboard') {
+        const heroLeft   = document.querySelector('.dash-hero-left');
+        const firstCard  = document.querySelector('#page-dashboard .section-card');
+
+        let left = 640;
+        let top  = 60;
+        let size = Math.min(Math.round(window.innerWidth * 0.38), 460);
+
+        if (heroLeft) {
+            const hr = heroLeft.getBoundingClientRect();
+            left = Math.round(hr.right + 24);
+
+            const heroTop   = hr.top;
+            const insightTop = firstCard ? firstCard.getBoundingClientRect().top : heroTop + 500;
+            // Rings extend ~22% beyond the wrapper edge — subtract that buffer so rings clear the card
+            const maxBottom = insightTop - 100;
+            const availH    = maxBottom - heroTop;
+            const availW    = document.documentElement.clientWidth - left - 8;
+            size = Math.min(Math.round(availH), Math.round(availW), 480);
+            size = Math.max(size, 160);
+
+            // Position orb: top edge near the top of the viewport, above the content
+            top = Math.max(Math.round(heroTop) - 80, 16);
+        }
+
+        // Don't overflow right edge
+        left = Math.min(left, document.documentElement.clientWidth - size - 8);
+
+        orb.style.width   = size + 'px';
+        orb.style.height  = size + 'px';
+        orb.style.left    = left + 'px';
+        orb.style.right   = 'auto';
+        orb.style.top     = top + 'px';
+        orb.style.opacity = '1';
+    } else {
+        const vw   = document.documentElement.clientWidth;
+        const vh   = document.documentElement.clientHeight;
+        const size = Math.min(Math.round(vw * 0.38), 500);
+        const left = Math.min(Math.round(vw * 0.55), vw - size - 40);
+        const top  = Math.round((vh - size) / 2);
+        orb.style.width   = size + 'px';
+        orb.style.height  = size + 'px';
+        orb.style.left    = left + 'px';
+        orb.style.right   = 'auto';
+        orb.style.top     = top + 'px';
+        orb.style.opacity = '0.9';
+    }
+
+    if (!animate) {
+        orb.offsetHeight; // force reflow
+        orb.style.transition = '';
+    }
+}
+
 function showPage(name) {
+    _currentPage = name;
     if (roadmapAnimId) { cancelAnimationFrame(roadmapAnimId); roadmapAnimId = null; }
     document.querySelectorAll(".page").forEach((p) => p.classList.add("hidden"));
     document.querySelectorAll(".nav-item[data-page]").forEach((i) => i.classList.remove("active"));
@@ -213,6 +312,13 @@ function showPage(name) {
     root.style.setProperty('--accent', `rgb(${r},${g},${b})`);
     root.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.18)`);
     root.style.setProperty('--accent-glow', `rgba(${r},${g},${b},0.35)`);
+
+    // Move orb — JS-computed positions so it's always fully visible
+    positionOrb(name, true);
+
+    // Switch orb shape + colour for this page
+    if (window.APP && window.APP.setOrbShape) window.APP.setOrbShape(name, r, g, b);
+    else if (window.APP && window.APP.orbTransition) window.APP.orbTransition(r, g, b);
 }
 
 function showAuthScreen() {
@@ -224,7 +330,8 @@ function showAppShell() {
     document.getElementById("screen-auth").classList.add("hidden");
     document.getElementById("app-shell").classList.remove("hidden");
     showPage("dashboard");
-    setTimeout(initOrb, 50);
+    setTimeout(() => { positionOrb("dashboard", false); initOrb(); }, 50);
+    window.addEventListener('resize', () => positionOrb(_currentPage || 'dashboard', false));
 }
 
 // ─── Auth Tab Switching ───────────────────────────────────────────────────────
@@ -384,22 +491,290 @@ function renderTasks() {
     });
 }
 
-// ─── Spaceship Progression ────────────────────────────────────────────────────
+// ─── Spaceship Progression (Three.js) ────────────────────────────────────────
 const SHIPS = [
-    { minLevel: 1,  name: "Rusty Pod",         draw: drawShipRustyPod },
-    { minLevel: 3,  name: "Star Hopper",        draw: drawShipStarHopper },
-    { minLevel: 5,  name: "Comet Rider",        draw: drawShipCometRider },
-    { minLevel: 8,  name: "Nebula Cruiser",     draw: drawShipNebulaCruiser },
-    { minLevel: 12, name: "Solar Falcon",       draw: drawShipSolarFalcon },
-    { minLevel: 17, name: "Nova Striker",       draw: drawShipNovaStriker },
-    { minLevel: 23, name: "Void Phantom",       draw: drawShipVoidPhantom },
-    { minLevel: 30, name: "Celestial Titan",    draw: drawShipCelestialTitan },
+    { minLevel: 1,  name: "Rusty Pod",      build: buildShipRustyPod      },
+    { minLevel: 3,  name: "Star Hopper",    build: buildShipStarHopper    },
+    { minLevel: 5,  name: "Comet Rider",    build: buildShipCometRider    },
+    { minLevel: 8,  name: "Nebula Cruiser", build: buildShipNebulaCruiser },
+    { minLevel: 12, name: "Solar Falcon",   build: buildShipSolarFalcon   },
+    { minLevel: 17, name: "Nova Striker",   build: buildShipNovaStriker   },
+    { minLevel: 23, name: "Void Phantom",   build: buildShipVoidPhantom   },
+    { minLevel: 30, name: "Celestial Titan",build: buildShipCelestialTitan},
 ];
 
 function getShipForLevel(level) {
     let ship = SHIPS[0];
     for (const s of SHIPS) { if (level >= s.minLevel) ship = s; }
     return ship;
+}
+
+// ── shared material helpers ───────────────────────────────────────────────────
+function mat(color, opts = {}) {
+    return new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.6, ...opts });
+}
+function emissiveMat(color, emissive, intensity = 0.8) {
+    return new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: intensity, roughness: 0.3, metalness: 0.5 });
+}
+
+// ── Level 1-2: Rusty Pod ──────────────────────────────────────────────────────
+function buildShipRustyPod() {
+    const g = new THREE.Group();
+    // squished sphere body
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 12), mat(0x7a4020, { roughness: 0.9, metalness: 0.2 }));
+    body.scale.y = 1.25;
+    g.add(body);
+    // porthole
+    const port = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.05, 16), mat(0x1a3a4a, { roughness: 0.1, metalness: 0.9 }));
+    port.rotation.x = Math.PI / 2; port.position.z = 0.5;
+    g.add(port);
+    // thruster
+    const thr = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 0.28, 12), mat(0x3a2010, { roughness: 0.8 }));
+    thr.position.y = -0.78;
+    g.add(thr);
+    // flame
+    const flame = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.45, 8), emissiveMat(0xff6600, 0xff3300, 1.5));
+    flame.rotation.x = Math.PI; flame.position.y = -1.12;
+    g.add(flame);
+    return g;
+}
+
+// ── Level 3-4: Star Hopper ────────────────────────────────────────────────────
+function buildShipStarHopper() {
+    const g = new THREE.Group();
+    // main body cylinder
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.42, 1.2, 14), mat(0xd0dce8, { roughness: 0.3, metalness: 0.7 }));
+    g.add(body);
+    // nose cone
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.6, 14), mat(0xe8f0f8, { roughness: 0.25, metalness: 0.8 }));
+    nose.position.y = 0.9;
+    g.add(nose);
+    // 3 fins
+    for (let i = 0; i < 3; i++) {
+        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.38, 0.34), mat(0xcc2233, { roughness: 0.5 }));
+        const a = (i / 3) * Math.PI * 2;
+        fin.position.set(Math.cos(a) * 0.44, -0.52, Math.sin(a) * 0.44);
+        fin.rotation.y = -a;
+        g.add(fin);
+    }
+    // engine glow
+    const eng = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.5, 10), emissiveMat(0x88aaff, 0x3366ff, 1.2));
+    eng.rotation.x = Math.PI; eng.position.y = -0.85;
+    g.add(eng);
+    return g;
+}
+
+// ── Level 5-7: Comet Rider ────────────────────────────────────────────────────
+function buildShipCometRider() {
+    const g = new THREE.Group();
+    // sleek tapered hull
+    const hull = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.36, 1.5, 16), mat(0x88aabb, { roughness: 0.2, metalness: 0.85 }));
+    g.add(hull);
+    // nose
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.7, 16), mat(0xaaccdd, { roughness: 0.15, metalness: 0.9 }));
+    nose.position.y = 1.1;
+    g.add(nose);
+    // swept wings (flat boxes, angled)
+    [-1, 1].forEach(side => {
+        const wing = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.05, 0.5), mat(0x6688aa, { roughness: 0.3, metalness: 0.7 }));
+        wing.position.set(side * 0.58, -0.1, 0.1);
+        wing.rotation.z = side * 0.25;
+        wing.rotation.y = side * -0.3;
+        g.add(wing);
+        // wing tip light
+        const tip = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), emissiveMat(0x00ccff, 0x0088ff, 2));
+        tip.position.set(side * 1.0, -0.18, 0.08);
+        g.add(tip);
+    });
+    // twin engines
+    [-0.2, 0.2].forEach(ox => {
+        const eng = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.6, 10), emissiveMat(0x44ccff, 0x0066ff, 1.4));
+        eng.rotation.x = Math.PI; eng.position.set(ox, -1.08, 0);
+        g.add(eng);
+    });
+    return g;
+}
+
+// ── Level 8-11: Nebula Cruiser ────────────────────────────────────────────────
+function buildShipNebulaCruiser() {
+    const g = new THREE.Group();
+    // wide primary hull
+    const hull = new THREE.Mesh(new THREE.BoxGeometry(0.55, 1.4, 0.32), mat(0x334455, { roughness: 0.3, metalness: 0.8 }));
+    g.add(hull);
+    // rounded nose cap
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 12), mat(0x445566, { roughness: 0.2, metalness: 0.9 }));
+    nose.scale.y = 1.1; nose.position.y = 0.72;
+    g.add(nose);
+    // side engine pods
+    [-1, 1].forEach(side => {
+        const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, 0.9, 12), mat(0x223344, { roughness: 0.35, metalness: 0.75 }));
+        pod.position.set(side * 0.62, -0.15, 0);
+        g.add(pod);
+        // pod connector strut
+        const strut = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.06, 0.06), mat(0x2a3a4a));
+        strut.position.set(side * 0.33, -0.1, 0);
+        g.add(strut);
+        // engine glow
+        const eng = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.45, 10), emissiveMat(0x00aaff, 0x0055ff, 1.5));
+        eng.rotation.x = Math.PI; eng.position.set(side * 0.62, -0.72, 0);
+        g.add(eng);
+    });
+    // cockpit window
+    const cockpit = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 10), emissiveMat(0x88ddff, 0x00aaff, 0.6));
+    cockpit.scale.z = 0.5; cockpit.position.set(0, 0.5, 0.2);
+    g.add(cockpit);
+    return g;
+}
+
+// ── Level 12-16: Solar Falcon ─────────────────────────────────────────────────
+function buildShipSolarFalcon() {
+    const g = new THREE.Group();
+    // delta-shaped fuselage using an extruded box
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.28, 1.6, 6), mat(0xc8a830, { roughness: 0.2, metalness: 0.9 }));
+    g.add(body);
+    // forward delta wings
+    [-1, 1].forEach(side => {
+        const wing = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.05, 0.7), mat(0xb89020, { roughness: 0.25, metalness: 0.85 }));
+        wing.position.set(side * 0.62, 0.1, 0.15);
+        wing.rotation.y = side * -0.45;
+        wing.rotation.z = side * 0.12;
+        g.add(wing);
+        // solar panel stripe
+        const panel = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.02, 0.55), emissiveMat(0xffcc00, 0xff8800, 0.4));
+        panel.position.set(side * 0.62, 0.12, 0.15);
+        panel.rotation.y = side * -0.45;
+        g.add(panel);
+    });
+    // nose
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.8, 6), mat(0xffe060, { roughness: 0.15, metalness: 0.95 }));
+    nose.position.y = 1.2;
+    g.add(nose);
+    // triple engine blaze
+    [-0.24, 0, 0.24].forEach(ox => {
+        const eng = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.55, 8), emissiveMat(0xffcc00, 0xff6600, 1.6));
+        eng.rotation.x = Math.PI; eng.position.set(ox, -1.0, 0);
+        g.add(eng);
+    });
+    return g;
+}
+
+// ── Level 17-22: Nova Striker ─────────────────────────────────────────────────
+function buildShipNovaStriker() {
+    const g = new THREE.Group();
+    // angular fuselage
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.55, 0.28), mat(0x1a1a2e, { roughness: 0.2, metalness: 0.95 }));
+    g.add(body);
+    // top spine ridge
+    const spine = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.4, 0.1), mat(0xff3355, { roughness: 0.3, metalness: 0.7 }));
+    spine.position.z = -0.15;
+    g.add(spine);
+    // forward swept wings
+    [-1, 1].forEach(side => {
+        const wing = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.05, 0.45), mat(0x16213e, { roughness: 0.2, metalness: 0.9 }));
+        wing.position.set(side * 0.56, -0.1, 0);
+        wing.rotation.y = side * 0.35;
+        wing.rotation.z = side * -0.15;
+        g.add(wing);
+        // leading edge red stripe
+        const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.03, 0.06), emissiveMat(0xff2244, 0xff0033, 1.0));
+        stripe.position.set(side * 0.56, -0.07, -0.2);
+        stripe.rotation.y = side * 0.35;
+        g.add(stripe);
+    });
+    // nose blade
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.9, 4), mat(0x0f0f1e, { roughness: 0.1, metalness: 1.0 }));
+    nose.rotation.y = Math.PI / 4; nose.position.y = 1.22;
+    g.add(nose);
+    // quad engines
+    [-0.22, -0.07, 0.07, 0.22].forEach(ox => {
+        const eng = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.5, 8), emissiveMat(0xff4488, 0xff0066, 1.8));
+        eng.rotation.x = Math.PI; eng.position.set(ox, -1.0, 0);
+        g.add(eng);
+    });
+    return g;
+}
+
+// ── Level 23-29: Void Phantom ─────────────────────────────────────────────────
+function buildShipVoidPhantom() {
+    const g = new THREE.Group();
+    // blended-wing stealth body
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.32, 1.7, 8), mat(0x0d0018, { roughness: 0.1, metalness: 1.0 }));
+    g.add(body);
+    // void aura sphere (translucent)
+    const aura = new THREE.Mesh(new THREE.SphereGeometry(0.7, 20, 16), new THREE.MeshStandardMaterial({
+        color: 0x6600cc, emissive: 0x330066, emissiveIntensity: 0.5,
+        transparent: true, opacity: 0.12, roughness: 0.0, metalness: 0.0
+    }));
+    g.add(aura);
+    // swept delta wings — very flat
+    [-1, 1].forEach(side => {
+        const wing = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.04, 0.6), mat(0x110022, { roughness: 0.1, metalness: 1.0 }));
+        wing.position.set(side * 0.62, 0.05, 0.12);
+        wing.rotation.y = side * -0.5;
+        g.add(wing);
+        // violet edge glow
+        const glow = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.03, 0.04), emissiveMat(0xaa44ff, 0x8800ff, 1.5));
+        glow.position.set(side * 0.62, 0.05, -0.06);
+        glow.rotation.y = side * -0.5;
+        g.add(glow);
+    });
+    // glowing eye cockpit
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 10), emissiveMat(0xee88ff, 0xcc44ff, 2.0));
+    eye.position.set(0, 0.42, 0.16);
+    g.add(eye);
+    // twin purple exhausts
+    [-0.18, 0.18].forEach(ox => {
+        const eng = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.65, 8), emissiveMat(0xcc44ff, 0x8800cc, 2.0));
+        eng.rotation.x = Math.PI; eng.position.set(ox, -1.05, 0);
+        g.add(eng);
+    });
+    return g;
+}
+
+// ── Level 30+: Celestial Titan ────────────────────────────────────────────────
+function buildShipCelestialTitan() {
+    const g = new THREE.Group();
+    // massive golden hull
+    const hull = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.48, 1.8, 16), mat(0xc87800, { roughness: 0.15, metalness: 1.0 }));
+    g.add(hull);
+    // golden aura
+    const aura = new THREE.Mesh(new THREE.SphereGeometry(0.88, 20, 16), new THREE.MeshStandardMaterial({
+        color: 0xffcc00, emissive: 0xff8800, emissiveIntensity: 0.3,
+        transparent: true, opacity: 0.10, roughness: 0.0
+    }));
+    g.add(aura);
+    // outer ornate wings
+    [-1, 1].forEach(side => {
+        const outerWing = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.06, 0.65), mat(0xffd700, { roughness: 0.12, metalness: 1.0 }));
+        outerWing.position.set(side * 0.72, -0.05, 0);
+        outerWing.rotation.z = side * 0.18;
+        g.add(outerWing);
+        // wing surface filigree
+        const filigree = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.04, 0.08), emissiveMat(0xffee80, 0xffcc00, 0.8));
+        filigree.position.set(side * 0.72, -0.01, -0.22);
+        filigree.rotation.z = side * 0.18;
+        g.add(filigree);
+        // inner secondary wings
+        const innerWing = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.05, 0.4), mat(0xb87000, { roughness: 0.18, metalness: 0.95 }));
+        innerWing.position.set(side * 0.36, 0.3, 0.05);
+        innerWing.rotation.z = side * -0.25;
+        g.add(innerWing);
+    });
+    // gleaming nose
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.95, 16), mat(0xffe060, { roughness: 0.1, metalness: 1.0 }));
+    nose.position.y = 1.38;
+    g.add(nose);
+    // gem cockpit
+    const gem = new THREE.Mesh(new THREE.SphereGeometry(0.14, 14, 12), emissiveMat(0xffffff, 0xffee88, 1.6));
+    gem.position.set(0, 0.72, 0.28);
+    g.add(gem);
+    // quad gold engine blazes
+    [-0.3, -0.1, 0.1, 0.3].forEach(ox => {
+        const eng = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.6, 8), emissiveMat(0xffee60, 0xff8800, 2.0));
+        eng.rotation.x = Math.PI; eng.position.set(ox, -1.15, 0);
+        g.add(eng);
+    });
+    return g;
 }
 
 // Level 1-2: beat-up capsule, rust-brown
@@ -678,202 +1053,333 @@ function drawShipCelestialTitan(ctx, w, h) {
     ctx.restore();
 }
 
-// ─── Living Orb (Dashboard Hero) ──────────────────────────────────────────────
-let _orbAnimFrame = null;
+// ─── Living Orb — Three.js (Dashboard Hero) ───────────────────────────────────
+let _orbRenderer = null;
 function initOrb() {
     const canvas = document.getElementById('orb-canvas');
-    if (!canvas) return;
-    if (_orbAnimFrame) { cancelAnimationFrame(_orbAnimFrame); _orbAnimFrame = null; }
+    if (!canvas || !window.THREE) return;
+    if (_orbRenderer) { _orbRenderer.dispose(); _orbRenderer = null; }
 
-    // Size canvas to its CSS layout size
-    function sizeCanvas() {
-        const rect = canvas.getBoundingClientRect();
-        canvas.width  = rect.width  || 420;
-        canvas.height = rect.height || 420;
-    }
-    sizeCanvas();
+    // Fixed render resolution — CSS transitions the visual size, Three.js stays stable
+    const RES = 560;
+    canvas.width  = RES;
+    canvas.height = RES;
 
-    const ctx = canvas.getContext('2d');
-    let W = canvas.width, H = canvas.height;
-    const cx = () => W / 2, cy = () => H / 2;
-    const R  = () => Math.min(W, H) * 0.38;
+    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+    _orbRenderer = renderer;
+    renderer.setPixelRatio(1); // already high res at 560px
+    renderer.setSize(RES, RES);
+    renderer.setClearColor(0x000000, 0);
 
-    // Mouse parallax
-    let mx = 0, my = 0, lx = 0, ly = 0;
-    canvas.addEventListener('mousemove', e => {
-        const r = canvas.getBoundingClientRect();
-        mx = (e.clientX - r.left) / W - 0.5;
-        my = (e.clientY - r.top)  / H - 0.5;
+    const scene  = new THREE.Scene();
+    // Wider FOV + farther camera so rings never clip
+    const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 100);
+    camera.position.z = 4.2;
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.15));
+    const keyLight = new THREE.PointLight(0xaaccff, 2.0, 14);
+    keyLight.position.set(-2, 2.5, 3);
+    scene.add(keyLight);
+    const rimLight = new THREE.PointLight(0xff6520, 1.4, 12);
+    rimLight.position.set(2, -2, -2);
+    scene.add(rimLight);
+
+    const orbGroup = new THREE.Group();
+    scene.add(orbGroup);
+
+    // ── shader with accent color uniform ─────────────────────────────────────
+    const vertexShader = `
+        varying vec3 vNormal;
+        varying vec3 vPosition;
+        void main() {
+            vNormal   = normalize(normalMatrix * normal);
+            vPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `;
+    const fragmentShader = `
+        uniform float uTime;
+        uniform vec3  uAccent;
+        varying vec3 vNormal;
+        varying vec3 vPosition;
+        void main() {
+            vec3 viewDir = normalize(cameraPosition - vPosition);
+            float fresnel = pow(1.0 - max(dot(vNormal, viewDir), 0.0), 2.2);
+
+            float n1 = sin(vPosition.x * 3.1 + uTime * 0.38) * sin(vPosition.y * 2.6 - uTime * 0.28) * 0.5 + 0.5;
+            float n2 = sin(vPosition.y * 2.9 + uTime * 0.22) * sin(vPosition.z * 3.3 - uTime * 0.32) * 0.5 + 0.5;
+            float n3 = sin(vPosition.z * 2.3 + uTime * 0.18) * sin(vPosition.x * 3.6 + uTime * 0.26) * 0.5 + 0.5;
+            float n4 = sin(vPosition.x * 1.8 - uTime * 0.14) * sin(vPosition.z * 2.1 + uTime * 0.20) * 0.5 + 0.5;
+
+            vec3 purple = vec3(0.49, 0.23, 0.93);
+            vec3 cyan   = vec3(0.10, 0.75, 1.00);
+            vec3 orange = vec3(1.00, 0.40, 0.12);
+            vec3 dark   = vec3(0.04, 0.01, 0.10);
+
+            vec3 col = mix(dark,   purple,  n1 * 0.88);
+            col = mix(col, cyan,   n2 * 0.46);
+            col = mix(col, orange, n3 * 0.36);
+            col = mix(col, uAccent, n4 * 0.42);  // page accent bleeds in
+
+            col += fresnel * (vec3(0.55, 0.25, 1.0) + uAccent * 0.4) * 1.4;
+
+            vec3 lightDir = normalize(vec3(-0.6, 0.8, 0.9));
+            float spec = pow(max(dot(reflect(-lightDir, vNormal), viewDir), 0.0), 42.0);
+            col += spec * vec3(0.9, 0.8, 1.0) * 0.55;
+
+            gl_FragColor = vec4(col, 0.92 + fresnel * 0.08);
+        }
+    `;
+
+    const uTime   = { value: 0 };
+    const uAccent = { value: new THREE.Vector3(1.0, 0.40, 0.12) }; // start orange
+
+    const orbMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(1.0, 64, 48),
+        new THREE.ShaderMaterial({ vertexShader, fragmentShader,
+            uniforms: { uTime, uAccent }, transparent: true })
+    );
+    orbGroup.add(orbMesh);
+
+    // ── orbital rings ─────────────────────────────────────────────────────────
+    const ringDefs = [
+        { r: 1.38, tube: 0.013, color: 0xff6520, opacity: 0.65, tiltX: 1.1,  tiltZ: 0.3  },
+        { r: 1.62, tube: 0.009, color: 0xaa66ff, opacity: 0.45, tiltX: -0.6, tiltZ: 0.8  },
+    ];
+    const rings = ringDefs.map(({ r, tube, color, opacity, tiltX, tiltZ }) => {
+        const mesh = new THREE.Mesh(
+            new THREE.TorusGeometry(r, tube, 8, 80),
+            new THREE.MeshBasicMaterial({ color, transparent: true, opacity })
+        );
+        mesh.rotation.x = tiltX;
+        mesh.rotation.z = tiltZ;
+        orbGroup.add(mesh);
+        return mesh;
     });
-    canvas.addEventListener('mouseleave', () => { mx = 0; my = 0; });
 
-    let t = 0;
+    // ── orbiting particles ────────────────────────────────────────────────────
+    const particleDefs = [
+        { r: 1.38, speed: 0.012, phase: 0,    tiltX: 1.1,  tiltZ: 0.3,  color: 0xff6520, size: 0.060 },
+        { r: 1.38, speed: 0.012, phase: 3.14, tiltX: 1.1,  tiltZ: 0.3,  color: 0xff9a50, size: 0.038 },
+        { r: 1.62, speed: -0.008,phase: 1.0,  tiltX: -0.6, tiltZ: 0.8,  color: 0xcc88ff, size: 0.044 },
+        { r: 1.62, speed: -0.008,phase: 4.2,  tiltX: -0.6, tiltZ: 0.8,  color: 0x9944ff, size: 0.030 },
+        { r: 1.48, speed: 0.010, phase: 2.0,  tiltX: 0.4,  tiltZ: -0.5, color: 0xff7a30, size: 0.046 },
+    ];
+    const particleMeshes = particleDefs.map(({ color, size, tiltX, tiltZ }) => {
+        const mesh = new THREE.Mesh(
+            new THREE.SphereGeometry(size, 8, 8),
+            new THREE.MeshBasicMaterial({ color })
+        );
+        mesh.userData.ring = new THREE.Object3D();
+        mesh.userData.ring.rotation.x = tiltX;
+        mesh.userData.ring.rotation.z = tiltZ;
+        orbGroup.add(mesh.userData.ring);
+        return mesh;
+    });
 
-    function draw() {
-        W = canvas.width; H = canvas.height;
-        ctx.clearRect(0, 0, W, H);
-        const r   = R();
-        const ox  = lx * r * 0.22;  // parallax offset
-        const oy  = ly * r * 0.22;
-        const bcx = cx() + ox, bcy = cy() + oy;
+    // ── mouse tracking ────────────────────────────────────────────────────────
+    let targetRX = 0, targetRY = 0, currentRX = 0, currentRY = 0;
+    window.addEventListener('mousemove', e => {
+        const r = canvas.getBoundingClientRect();
+        targetRY = ((e.clientX - r.left) / RES - 0.5) * 0.8;
+        targetRX = ((e.clientY - r.top)  / RES - 0.5) * -0.5;
+    });
 
-        // ── base sphere ──────────────────────────────────────────
-        const sphere = ctx.createRadialGradient(bcx - r * 0.28, bcy - r * 0.28, r * 0.05, bcx, bcy, r);
-        sphere.addColorStop(0,   'rgba(200,160,255,0.55)');
-        sphere.addColorStop(0.3, 'rgba(124,58,237,0.45)');
-        sphere.addColorStop(0.7, 'rgba(60,20,120,0.6)');
-        sphere.addColorStop(1,   'rgba(10,6,20,0.9)');
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(bcx, bcy, r, 0, Math.PI * 2);
-        ctx.fillStyle = sphere;
-        ctx.fill();
-        ctx.restore();
+    // ── transition state ──────────────────────────────────────────────────────
+    let speedMult  = 1.0;   // spikes to 4 on page switch, decays back
+    let scalePulse = 1.0;   // spikes to 1.12, decays back
+    let accentTarget = new THREE.Vector3(1.0, 0.40, 0.12);
 
-        // ── aurora layer 1 — purple blob rotating ────────────────
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(bcx, bcy, r, 0, Math.PI * 2);
-        ctx.clip();
-        const a1x = bcx + Math.cos(t * 0.008) * r * 0.35;
-        const a1y = bcy + Math.sin(t * 0.008) * r * 0.28;
-        const aurora1 = ctx.createRadialGradient(a1x, a1y, 0, a1x, a1y, r * 0.65);
-        aurora1.addColorStop(0,   'rgba(180,100,255,0.55)');
-        aurora1.addColorStop(0.5, 'rgba(120,40,220,0.25)');
-        aurora1.addColorStop(1,   'rgba(80,20,160,0)');
-        ctx.fillStyle = aurora1;
-        ctx.fillRect(0, 0, W, H);
-        ctx.restore();
+    // ── page shape system — organic blob morphing ─────────────────────────────
+    // Each page gets a unique blob "personality" via wave frequency/amplitude params.
+    // All shapes are organic wireframe sphere morphs — no set geometric forms.
+    const PAGE_BLOB_PARAMS = {
+        tasks:         { f1: 2.2, f2: 1.6, f3: 2.8, s1: 0.011, s2: 0.009, s3: 0.012, amp: 0.30, rotY: 0.005 },
+        habits:        { f1: 1.4, f2: 2.0, f3: 1.2, s1: 0.007, s2: 0.010, s3: 0.008, amp: 0.22, rotY: 0.003 },
+        quests:        { f1: 3.0, f2: 2.4, f3: 1.8, s1: 0.013, s2: 0.011, s3: 0.014, amp: 0.38, rotY: 0.006 },
+        epics:         { f1: 1.8, f2: 1.2, f3: 2.2, s1: 0.009, s2: 0.007, s3: 0.010, amp: 0.45, rotY: 0.004 },
+        'focus-timer': { f1: 1.2, f2: 0.9, f3: 1.4, s1: 0.005, s2: 0.007, s3: 0.006, amp: 0.18, rotY: 0.002 },
+        focus:         { f1: 1.2, f2: 0.9, f3: 1.4, s1: 0.005, s2: 0.007, s3: 0.006, amp: 0.18, rotY: 0.002 },
+        mood:          { f1: 2.8, f2: 2.2, f3: 3.2, s1: 0.015, s2: 0.012, s3: 0.013, amp: 0.28, rotY: 0.004 },
+        skills:        { f1: 4.0, f2: 3.0, f3: 3.5, s1: 0.010, s2: 0.012, s3: 0.011, amp: 0.25, rotY: 0.005 },
+        achievements:  { f1: 2.0, f2: 3.5, f3: 2.5, s1: 0.014, s2: 0.016, s3: 0.012, amp: 0.40, rotY: 0.008 },
+        profile:       { f1: 1.5, f2: 1.8, f3: 1.3, s1: 0.006, s2: 0.008, s3: 0.007, amp: 0.18, rotY: 0.003 },
+        roadmap:       { f1: 2.5, f2: 1.5, f3: 3.0, s1: 0.010, s2: 0.008, s3: 0.012, amp: 0.35, rotY: 0.004 },
+        loot:          { f1: 3.5, f2: 2.8, f3: 4.0, s1: 0.013, s2: 0.015, s3: 0.014, amp: 0.32, rotY: 0.007 },
+    };
 
-        // ── aurora layer 2 — cyan blob counter-rotating ──────────
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(bcx, bcy, r, 0, Math.PI * 2);
-        ctx.clip();
-        const a2x = bcx + Math.cos(-t * 0.006 + 2.1) * r * 0.40;
-        const a2y = bcy + Math.sin(-t * 0.006 + 2.1) * r * 0.32;
-        const aurora2 = ctx.createRadialGradient(a2x, a2y, 0, a2x, a2y, r * 0.55);
-        aurora2.addColorStop(0,   'rgba(80,200,255,0.40)');
-        aurora2.addColorStop(0.5, 'rgba(20,160,220,0.18)');
-        aurora2.addColorStop(1,   'rgba(0,100,180,0)');
-        ctx.fillStyle = aurora2;
-        ctx.fillRect(0, 0, W, H);
-        ctx.restore();
+    let activeShape = null; // { group, update(t, speed) }
 
-        // ── aurora layer 3 — magenta drifting ────────────────────
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(bcx, bcy, r, 0, Math.PI * 2);
-        ctx.clip();
-        const a3x = bcx + Math.cos(t * 0.005 + 4.7) * r * 0.30;
-        const a3y = bcy + Math.sin(t * 0.007 + 1.2) * r * 0.38;
-        const aurora3 = ctx.createRadialGradient(a3x, a3y, 0, a3x, a3y, r * 0.50);
-        aurora3.addColorStop(0,   'rgba(255,80,180,0.35)');
-        aurora3.addColorStop(0.5, 'rgba(200,40,120,0.14)');
-        aurora3.addColorStop(1,   'rgba(140,0,80,0)');
-        ctx.fillStyle = aurora3;
-        ctx.fillRect(0, 0, W, H);
-        ctx.restore();
-
-        // ── rim darkening ─────────────────────────────────────────
-        ctx.save();
-        const rim = ctx.createRadialGradient(bcx, bcy, r * 0.62, bcx, bcy, r);
-        rim.addColorStop(0,   'rgba(0,0,0,0)');
-        rim.addColorStop(1,   'rgba(0,0,0,0.70)');
-        ctx.beginPath();
-        ctx.arc(bcx, bcy, r, 0, Math.PI * 2);
-        ctx.fillStyle = rim;
-        ctx.fill();
-        ctx.restore();
-
-        // ── specular highlight ────────────────────────────────────
-        ctx.save();
-        const hx = bcx - r * 0.30 + ox * 0.5;
-        const hy = bcy - r * 0.32 + oy * 0.5;
-        const spec = ctx.createRadialGradient(hx, hy, 0, hx, hy, r * 0.38);
-        spec.addColorStop(0,   'rgba(255,255,255,0.28)');
-        spec.addColorStop(0.4, 'rgba(220,200,255,0.10)');
-        spec.addColorStop(1,   'rgba(180,160,255,0)');
-        ctx.beginPath();
-        ctx.arc(bcx, bcy, r, 0, Math.PI * 2);
-        ctx.clip();
-        ctx.fillStyle = spec;
-        ctx.fillRect(0, 0, W, H);
-        ctx.restore();
-
-        // ── orbital rings ─────────────────────────────────────────
-        const rings = [
-            { tilt: 0.42, speed: 0.009, color: 'rgba(180,120,255,0.45)', w: 1.5 },
-            { tilt: -0.28, speed: -0.006, color: 'rgba(80,200,255,0.32)', w: 1.0 },
-        ];
-        rings.forEach(({ tilt, speed, color, w }) => {
-            const angle = t * speed;
-            ctx.save();
-            ctx.translate(bcx, bcy);
-            ctx.rotate(angle);
-            ctx.scale(1, Math.sin(tilt));
-            ctx.beginPath();
-            ctx.arc(0, 0, r * 1.18, 0, Math.PI * 2);
-            ctx.strokeStyle = color;
-            ctx.lineWidth = w;
-            ctx.stroke();
-            ctx.restore();
-        });
-
-        // ── orbiting particles ────────────────────────────────────
-        const particles = [
-            { phase: 0,    speed: 0.014, tilt: 0.42,  size: 3.0, color: 'rgba(200,160,255,0.9)' },
-            { phase: 2.51, speed: 0.014, tilt: 0.42,  size: 2.0, color: 'rgba(160,100,255,0.7)' },
-            { phase: 1.0,  speed: -0.009, tilt: -0.28, size: 2.5, color: 'rgba(80,210,255,0.85)' },
-            { phase: 3.8,  speed: -0.009, tilt: -0.28, size: 1.8, color: 'rgba(60,180,240,0.65)' },
-            { phase: 5.2,  speed: 0.011, tilt: 0.15,  size: 2.2, color: 'rgba(255,140,220,0.75)' },
-        ];
-        particles.forEach(({ phase, speed, tilt, size, color }) => {
-            const a   = t * speed + phase;
-            const px  = bcx + Math.cos(a) * r * 1.18;
-            const py  = bcy + Math.sin(a) * r * 1.18 * Math.sin(tilt);
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(px, py, size, 0, Math.PI * 2);
-            ctx.fillStyle = color;
-            ctx.shadowBlur  = 8;
-            ctx.shadowColor = color;
-            ctx.fill();
-            ctx.restore();
-        });
-
-        // lerp parallax
-        lx += (mx - lx) * 0.06;
-        ly += (my - ly) * 0.06;
-        t++;
-        _orbAnimFrame = requestAnimationFrame(draw);
+    function clearShape() {
+        if (activeShape) { scene.remove(activeShape.group); activeShape = null; }
     }
 
-    draw();
+    // Organic blob: multi-layer sphere with cross-coupled sine displacement.
+    // Cross-coupling (e.g. ox*f1 + oy*f2*0.4) prevents separable wave patterns,
+    // making the surface look alive rather than like a simple standing wave.
+    function buildOrganicBlob(color, params) {
+        const { f1=2.0, f2=1.8, f3=1.6, s1=0.011, s2=0.009, s3=0.010, amp=0.28, rotY=0.004 } = params;
+        const group  = new THREE.Group();
+        // Three nested layers: primary, inner, outer ghost
+        const layerDefs = [
+            { r: 1.3,  segs: 48, op: 0.30, tOff:   0, xOff:  0.0, aM: 1.00 },
+            { r: 0.92, segs: 32, op: 0.20, tOff: 150, xOff:  0.6, aM: 0.65 },
+            { r: 1.72, segs: 22, op: 0.10, tOff: -80, xOff: -0.4, aM: 0.45 },
+        ];
+        const meshes = [];
+        for (const ld of layerDefs) {
+            const geo  = new THREE.SphereGeometry(ld.r, ld.segs, Math.round(ld.segs * 0.65));
+            const mat  = new THREE.MeshBasicMaterial({ color, wireframe: true, transparent: true, opacity: ld.op, depthWrite: false });
+            const mesh = new THREE.Mesh(geo, mat);
+            const orig = Float32Array.from(geo.attributes.position.array);
+            meshes.push({ geo, orig, tOff: ld.tOff, xOff: ld.xOff, aM: ld.aM });
+            group.add(mesh);
+        }
+        group.scale.setScalar(0.82);
+        return { group, update(t, sp) {
+            for (const { geo, orig, tOff, xOff, aM } of meshes) {
+                const pos = geo.attributes.position.array;
+                const tt  = t + tOff;
+                for (let i = 0; i < pos.length; i += 3) {
+                    const ox = orig[i], oy = orig[i+1], oz = orig[i+2];
+                    const len = Math.sqrt(ox*ox + oy*oy + oz*oz) || 1;
+                    const w1 = Math.sin(ox * f1 + tt * s1 * sp + oy * f2 * 0.4 + xOff);
+                    const w2 = Math.cos(oy * f2 + tt * s2 * sp + oz * f3 * 0.35);
+                    const w3 = Math.sin(oz * f3 + tt * s3 * sp + ox * f1 * 0.3);
+                    const d  = amp * aM * (w1 * w2 * 0.7 + w3 * 0.3);
+                    const s  = (1 + d) / len;
+                    pos[i] = ox * s; pos[i+1] = oy * s; pos[i+2] = oz * s;
+                }
+                geo.attributes.position.needsUpdate = true;
+            }
+            group.rotation.y += rotY * sp;
+            group.rotation.x  = Math.sin(t * 0.003) * 0.35;
+            group.rotation.z  = Math.cos(t * 0.0023) * 0.18;
+        }};
+    }
+
+    window.APP.orbTransition = function(r, g, b) {
+        accentTarget.set(r / 255, g / 255, b / 255);
+        speedMult  = 4.0;
+        scalePulse = 1.12;
+    };
+
+    window.APP.setOrbShape = function(page, r, g, b) {
+        accentTarget.set(r / 255, g / 255, b / 255);
+        speedMult  = 3.5;
+        scalePulse = 1.1;
+        if (page === 'dashboard') {
+            clearShape();
+            orbGroup.visible = true;
+        } else {
+            orbGroup.visible = false;
+            clearShape();
+            const params = PAGE_BLOB_PARAMS[page] || {};
+            const color  = new THREE.Color(r / 255, g / 255, b / 255);
+            activeShape  = buildOrganicBlob(color, params);
+            scene.add(activeShape.group);
+        }
+    };
+
+    // ── animate ───────────────────────────────────────────────────────────────
+    let t = 0;
+    function animate() {
+        requestAnimationFrame(animate);
+
+        // decay transition values
+        speedMult  += (1.0 - speedMult)  * 0.06;
+        scalePulse += (1.0 - scalePulse) * 0.08;
+        uAccent.value.lerp(accentTarget, 0.04);
+
+        uTime.value = t * 0.016;
+
+        if (orbGroup.visible) {
+            currentRX += (targetRX - currentRX) * 0.04;
+            currentRY += (targetRY - currentRY) * 0.04;
+            orbGroup.rotation.x = currentRX;
+            orbGroup.rotation.y = currentRY + t * 0.004 * speedMult;
+            orbGroup.scale.setScalar(scalePulse);
+
+            rings[0].rotation.z += 0.004 * speedMult;
+            rings[1].rotation.z -= 0.003 * speedMult;
+
+            particleDefs.forEach((def, i) => {
+                const angle = t * def.speed * speedMult + def.phase;
+                const mesh  = particleMeshes[i];
+                const ring  = mesh.userData.ring;
+                const local = new THREE.Vector3(Math.cos(angle) * def.r, 0, Math.sin(angle) * def.r);
+                local.applyEuler(ring.rotation);
+                mesh.position.copy(local);
+                if (!mesh.parent) orbGroup.add(mesh);
+            });
+        }
+
+        if (activeShape) activeShape.update(t, speedMult);
+
+        renderer.render(scene, camera);
+        t++;
+    }
+    animate();
 }
 
-let _shipAnimFrame = null;
+// ─── Ship Renderer (Three.js) ────────────────────────────────────────────────
+let _shipThreeRenderer = null;
+let _shipThreeScene    = null;
+let _shipThreeCamera   = null;
+let _shipCurrentGroup  = null;
+
 function renderShip(level) {
     const canvas = document.getElementById('spaceship-canvas');
     const nameEl = document.getElementById('ship-name');
-    if (!canvas) return;
+    if (!canvas || !window.THREE) return;
+
     const ship = getShipForLevel(level);
     if (nameEl) nameEl.textContent = ship.name;
-    const ctx = canvas.getContext('2d');
-    const w = canvas.width, h = canvas.height;
+
+    // Create renderer once
+    if (!_shipThreeRenderer) {
+        _shipThreeRenderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+        _shipThreeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        _shipThreeRenderer.setClearColor(0x000000, 0);
+        _shipThreeRenderer.setSize(canvas.width, canvas.height);
+
+        _shipThreeScene  = new THREE.Scene();
+        _shipThreeCamera = new THREE.PerspectiveCamera(38, 1, 0.1, 50);
+        _shipThreeCamera.position.set(0, 0.4, 3.8);
+        _shipThreeCamera.lookAt(0, 0, 0);
+
+        _shipThreeScene.add(new THREE.AmbientLight(0xffffff, 0.5));
+        const key = new THREE.PointLight(0xaaddff, 3.0, 20);
+        key.position.set(-2, 3, 3);
+        _shipThreeScene.add(key);
+        const fill = new THREE.PointLight(0xffeedd, 1.2, 15);
+        fill.position.set(2, -1, 2);
+        _shipThreeScene.add(fill);
+        const back = new THREE.PointLight(0x8844ff, 1.5, 12);
+        back.position.set(0, -2, -3);
+        _shipThreeScene.add(back);
+    }
+
+    // Swap ship mesh
+    if (_shipCurrentGroup) {
+        _shipThreeScene.remove(_shipCurrentGroup);
+        _shipCurrentGroup.traverse(obj => {
+            if (obj.geometry) obj.geometry.dispose();
+            if (obj.material) obj.material.dispose();
+        });
+    }
+    _shipCurrentGroup = ship.build();
+    _shipThreeScene.add(_shipCurrentGroup);
+
+    // Animate
     let t = 0;
     function frame() {
-        ctx.clearRect(0, 0, w, h);
-        ctx.save();
-        // gentle float animation
-        const floatY = Math.sin(t * 0.04) * 2;
-        ctx.translate(0, floatY);
-        ship.draw(ctx, w, h);
-        ctx.restore();
+        _shipCurrentGroup.rotation.y = t * 0.012;
+        _shipCurrentGroup.position.y = Math.sin(t * 0.04) * 0.06;
+        _shipThreeRenderer.render(_shipThreeScene, _shipThreeCamera);
         t++;
-        _shipAnimFrame = requestAnimationFrame(frame);
+        requestAnimationFrame(frame);
     }
-    if (_shipAnimFrame) cancelAnimationFrame(_shipAnimFrame);
     frame();
 }
 

@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
     <canvas id="galaxy-canvas"></canvas>
@@ -105,6 +105,11 @@
             </button>
         </nav>
 
+        <!-- Persistent orb — lives outside pages so it survives navigation -->
+        <div id="orb-wrap" class="orb-state-dashboard">
+            <canvas id="orb-canvas"></canvas>
+        </div>
+
         <!-- Main Content -->
         <main class="main-content">
 
@@ -145,9 +150,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="dash-hero-right">
-                        <canvas id="orb-canvas"></canvas>
-                    </div>
+                    <!-- orb-canvas moved to app-shell level -->
                 </div>
 
                 <div class="conflict-banner hidden" id="conflict-banner">
@@ -427,7 +430,8 @@
         </main>
     </div>
 
-    <script src="script.js"></script>
+    <script src="node_modules/three/build/three.min.js"></script>
+    <script src="script.js?v=10"></script>
     <script src="habits.js"></script>
     <script src="focus.js"></script>
     <script src="quests.js"></script>

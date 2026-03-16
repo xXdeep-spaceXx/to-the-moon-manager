@@ -15,15 +15,18 @@
     --text-2: rgba(240,240,245,0.50);
     --text-3: rgba(240,240,245,0.26);
 
-    /* Single dominant accent — deep purple (Ventriloc-inspired) */
+    /* Dominant accents — purple + orange (fabric.vc-inspired) */
     --purple:      #7c3aed;
     --purple-lo:   rgba(124,58,237,0.16);
     --purple-glow: rgba(124,58,237,0.40);
 
-    /* Gamification status colors — used sparingly */
+    --orange:      #ff6520;
+    --orange-lo:   rgba(255,101,32,0.15);
+    --orange-glow: rgba(255,101,32,0.42);
+
+    /* Status colors */
     --green:  #30d158;
     --green-lo: rgba(48,209,88,0.14);
-    --orange: #ff9f0a;
     --pink:   #ff375f;
     --cyan:   #38bdf8;
     --blue:   #0a84ff;
@@ -105,7 +108,7 @@ body::before {
 
 .logo-icon {
     font-size:64px; display:block; margin-bottom:16px;
-    filter: drop-shadow(0 0 28px rgba(124,58,237,0.7));
+    filter: drop-shadow(0 0 28px rgba(255,101,32,0.75));
     animation: floatShip 4s ease-in-out infinite;
 }
 
@@ -116,7 +119,7 @@ body::before {
 
 .auth-logo h1 {
     font-size:2.4rem; font-weight:800; letter-spacing:-1.2px;
-    background: linear-gradient(135deg,#fff 0%,rgba(220,210,255,0.7) 100%);
+    background: linear-gradient(135deg,#fff 0%, #ff9060 60%, var(--orange) 100%);
     -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
 }
 
@@ -248,7 +251,7 @@ button { font-family:inherit; cursor:pointer; }
 
 .sidebar-logo-icon {
     font-size: 24px;
-    filter: drop-shadow(0 0 14px rgba(124,58,237,0.75));
+    filter: drop-shadow(0 0 14px rgba(255,101,32,0.8));
     animation: floatShip 4s ease-in-out infinite;
     cursor: default;
 }
@@ -337,7 +340,7 @@ button { font-family:inherit; cursor:pointer; }
 .page-header h1 {
     font-size: clamp(2.4rem, 4vw, 3.5rem);
     font-weight: 900; letter-spacing: -2px; line-height: 1.04;
-    background: linear-gradient(135deg, #ffffff 20%, rgba(220,210,255,0.65) 100%);
+    background: linear-gradient(135deg, #ffffff 30%, rgba(255,180,120,0.7) 100%);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
 }
 
@@ -348,17 +351,16 @@ button { font-family:inherit; cursor:pointer; }
 
 /* ─── Dashboard Hero ─────────────────────────────────────────────────────── */
 .dash-hero {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0;
+    display: flex;
     align-items: center;
-    min-height: 420px;
-    margin-bottom: 72px;
+    min-height: 380px;
+    margin-bottom: 56px;
 }
 
 .dash-hero-left {
     display: flex; flex-direction: column;
-    padding-right: 48px;
+    max-width: 520px;
+    position: relative; z-index: 2;
 }
 
 .dash-level-row {
@@ -370,7 +372,7 @@ button { font-family:inherit; cursor:pointer; }
     font-size: clamp(72px, 9vw, 104px);
     font-weight: 900; line-height: 0.92; letter-spacing: -5px;
     font-variant-numeric: tabular-nums;
-    background: linear-gradient(135deg, #fff 0%, rgba(var(--accent-r),var(--accent-g),var(--accent-b),0.75) 100%);
+    background: linear-gradient(135deg, #fff 0%, #ffb07a 55%, var(--orange) 100%);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
 }
 
@@ -399,9 +401,7 @@ button { font-family:inherit; cursor:pointer; }
 
 .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg,
-        rgba(var(--accent-r),var(--accent-g),var(--accent-b),0.7),
-        rgba(var(--accent-r),var(--accent-g),var(--accent-b),1));
+    background: linear-gradient(90deg, var(--orange) 0%, #ffaa60 100%);
     width: 0%; border-radius: 999px;
     transition: width 0.6s cubic-bezier(0.34,1.56,0.64,1);
     position: relative; overflow: hidden;
@@ -435,12 +435,20 @@ button { font-family:inherit; cursor:pointer; }
 .dash-stat-div { width:1px; height:40px; background:rgba(255,255,255,0.08); flex-shrink:0; }
 
 /* Living orb */
-.dash-hero-right {
-    display: flex; align-items: center; justify-content: center;
+/* ─── Persistent Orb — position driven by JS positionOrb() ───────────────── */
+#orb-wrap {
+    position: fixed;
+    pointer-events: none;
+    z-index: 6;
+    transition:
+        width   0.75s cubic-bezier(0.34, 1.2, 0.64, 1),
+        height  0.75s cubic-bezier(0.34, 1.2, 0.64, 1),
+        left    0.75s cubic-bezier(0.34, 1.2, 0.64, 1),
+        top     0.75s cubic-bezier(0.34, 1.2, 0.64, 1),
+        opacity 0.5s ease;
 }
-#orb-canvas {
-    width: 100%; max-width: 440px; height: auto; display: block;
-}
+
+#orb-canvas { width: 100%; height: 100%; display: block; }
 
 /* ─── Section Cards (glass) ──────────────────────────────────────────────── */
 .section-card {
@@ -747,11 +755,6 @@ button { font-family:inherit; cursor:pointer; }
 .spaceship { font-size:44px; margin-bottom:8px; display:block; animation:floatShip 4s ease-in-out infinite; }
 
 /* ─── Responsive ─────────────────────────────────────────────────────────── */
-@media (max-width: 900px) {
-    .dash-hero { grid-template-columns:1fr; }
-    .dash-hero-right { display:none; }
-    .dash-hero-left  { padding-right:0; }
-}
 
 @media (max-width: 768px) {
     .roadmap-legend { display:none; }
