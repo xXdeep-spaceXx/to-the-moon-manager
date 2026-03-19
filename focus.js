@@ -2,17 +2,40 @@
 (function () {
   "use strict";
 
-  const WORK_MS  = 25 * 60 * 1000;
-  const BREAK_MS =  5 * 60 * 1000;
+  const DEFAULT_WORK_MINS  = 25;
+  const DEFAULT_BREAK_MINS =  5;
 
   let mode        = "work";   // "work" | "break"
-  let totalMs     = WORK_MS;
-  let remainingMs = WORK_MS;
+  let totalMs     = DEFAULT_WORK_MINS * 60 * 1000;
+  let remainingMs = DEFAULT_WORK_MINS * 60 * 1000;
   let running     = false;
   let tickInterval  = null;
   let animFrame     = null;
   let lastTick      = null;
   let flashUntil    = 0;
+
+  // ── audio ─────────────────────────────────────────────────────────────────
+  let audioCtx = null;
+  function getAudioCtx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return audioCtx;
+  }
+  function playChime(frequency, durationSec) {
+    try {
+      const ctx  = getAudioCtx();
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type      = "sine";
+      osc.frequency.setValueAtTime(frequency, ctx.currentTime);
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.35, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationSec);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + durationSec);
+    } catch (e) { /* audio not available */ }
+  }
 
   // ── helpers ──────────────────────────────────────────────────────────────────
   function fmtTime(ms) {
@@ -24,7 +47,24 @@
     return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   }
   function ensureFocus(state) {
-    if (!state.focus || !Array.isArray(state.focus.sessions)) state.focus = { sessions: [] };
+    if (!state.focus || !Array.isArray(state.focus.sessions)) {
+      state.focus = { sessions: [] };
+    }
+    if (typeof state.focus.workMins  !== "number") state.focus.workMins  = DEFAULT_WORK_MINS;
+    if (typeof state.focus.breakMins !== "number") state.focus.breakMins = DEFAULT_BREAK_MINS;
+  }
+
+  function savedWorkMins()  {
+    const s = window.APP.getState(); ensureFocus(s); return s.focus.workMins;
+  }
+  function savedBreakMins() {
+    const s = window.APP.getState(); ensureFocus(s); return s.focus.breakMins;
+  }
+  function readInputMins(id, fallback) {
+    const el = document.getElementById(id);
+    if (!el) return fallback;
+    const v = parseInt(el.value, 10);
+    return (isFinite(v) && v >= 1 && v <= 240) ? v : fallback;
   }
   function activeTasks() {
     const s = window.APP.getState();
@@ -91,6 +131,20 @@
   // ── timer controls ───────────────────────────────────────────────────────────
   function start() {
     if (running) return;
+    // Capture duration preferences at the moment Start is pressed (not mid-session)
+    const workMins  = readInputMins("focus-input-work",  savedWorkMins());
+    const breakMins = readInputMins("focus-input-break", savedBreakMins());
+    const state = window.APP.getState();
+    ensureFocus(state);
+    state.focus.workMins  = workMins;
+    state.focus.breakMins = breakMins;
+    window.APP.touchState();
+    window.APP.persist();
+    // Apply the chosen duration for the current mode if the timer hasn't started yet
+    if (remainingMs === totalMs) {
+      totalMs     = (mode === "work" ? workMins : breakMins) * 60 * 1000;
+      remainingMs = totalMs;
+    }
     running = true;
     lastTick = performance.now();
     tickInterval = setInterval(tick, 50);
@@ -115,8 +169,10 @@
 
   function switchMode(m) {
     pause();
-    mode      = m;
-    totalMs   = m === "work" ? WORK_MS : BREAK_MS;
+    mode        = m;
+    const workMins  = readInputMins("focus-input-work",  savedWorkMins());
+    const breakMins = readInputMins("focus-input-break", savedBreakMins());
+    totalMs     = (m === "work" ? workMins : breakMins) * 60 * 1000;
     remainingMs = totalMs;
     flashUntil  = 0;
     syncUI();
@@ -134,6 +190,12 @@
 
   function onComplete() {
     pause();
+    // Play chime: 880 Hz for work end, 440 Hz for break end
+    if (mode === "work") {
+      playChime(880, 1.4);
+    } else {
+      playChime(440, 1.8);
+    }
     const xp = mode === "work" ? 50 : 10;
     const state = window.APP.getState();
     ensureFocus(state);
@@ -142,6 +204,7 @@
     window.APP.touchState();
     window.APP.persist();
     window.APP.gainXP(xp);
+    if (window.APP.checkChallenges) window.APP.checkChallenges();
     flashUntil = Date.now() + 1400;
     startAnim();
     setTimeout(() => { stopAnim(); drawRing(); renderHistory(); }, 1500);
@@ -169,8 +232,16 @@
 
     const bWork  = document.getElementById("focus-mode-work");
     const bBreak = document.getElementById("focus-mode-break");
-    if (bWork)  { bWork.className  = mode === "work"  ? "btn-primary"   : "btn-secondary"; }
-    if (bBreak) { bBreak.className = mode === "break" ? "btn-primary"   : "btn-secondary"; }
+    const wm = readInputMins("focus-input-work",  savedWorkMins());
+    const bm = readInputMins("focus-input-break", savedBreakMins());
+    if (bWork)  {
+      bWork.className  = mode === "work"  ? "btn-primary" : "btn-secondary";
+      bWork.textContent  = `${wm} min Work`;
+    }
+    if (bBreak) {
+      bBreak.className = mode === "break" ? "btn-primary" : "btn-secondary";
+      bBreak.textContent = `${bm} min Break`;
+    }
   }
 
   function populateTaskSelect() {
@@ -215,6 +286,10 @@
     if (!container) return;
 
     if (!document.getElementById("focus-canvas")) {
+      const state = window.APP.getState();
+      ensureFocus(state);
+      const wm = state.focus.workMins;
+      const bm = state.focus.breakMins;
       container.innerHTML = `
         <div class="section-card" style="text-align:center;max-width:360px;margin:0 auto;">
 
@@ -222,7 +297,7 @@
             <canvas id="focus-canvas" width="160" height="160" style="display:block;"></canvas>
           </div>
 
-          <div id="focus-time-display" style="font-size:42px;font-weight:700;letter-spacing:2px;font-variant-numeric:tabular-nums;margin-bottom:4px;">25:00</div>
+          <div id="focus-time-display" style="font-size:42px;font-weight:700;letter-spacing:2px;font-variant-numeric:tabular-nums;margin-bottom:4px;">${String(wm).padStart(2,"0")}:00</div>
           <div id="focus-phase-label" style="font-size:12px;font-weight:600;letter-spacing:2px;color:var(--blue);margin-bottom:20px;">FOCUS</div>
 
           <div style="display:flex;gap:10px;justify-content:center;margin-bottom:12px;">
@@ -232,8 +307,19 @@
           </div>
 
           <div style="display:flex;gap:8px;justify-content:center;margin-bottom:16px;">
-            <button id="focus-mode-work"  class="btn-primary">25 min Work</button>
-            <button id="focus-mode-break" class="btn-secondary">5 min Break</button>
+            <button id="focus-mode-work"  class="btn-primary">${wm} min Work</button>
+            <button id="focus-mode-break" class="btn-secondary">${bm} min Break</button>
+          </div>
+
+          <div class="focus-duration-row">
+            <label class="focus-duration-label">Work
+              <input id="focus-input-work" class="focus-duration-input" type="number" min="1" max="240" value="${wm}">
+              <span class="focus-duration-unit">min</span>
+            </label>
+            <label class="focus-duration-label">Break
+              <input id="focus-input-break" class="focus-duration-input" type="number" min="1" max="240" value="${bm}">
+              <span class="focus-duration-unit">min</span>
+            </label>
           </div>
 
           <select id="focus-task-select" class="focus-task-select" style="width:100%;margin-bottom:8px;"></select>
@@ -245,6 +331,20 @@
       document.getElementById("focus-btn-reset") .addEventListener("click", reset);
       document.getElementById("focus-mode-work") .addEventListener("click", () => switchMode("work"));
       document.getElementById("focus-mode-break").addEventListener("click", () => switchMode("break"));
+
+      // When duration inputs change while idle, update button labels and reset timer display
+      ["focus-input-work", "focus-input-break"].forEach(id => {
+        document.getElementById(id).addEventListener("change", () => {
+          if (!running) {
+            const wm2  = readInputMins("focus-input-work",  savedWorkMins());
+            const bm2  = readInputMins("focus-input-break", savedBreakMins());
+            totalMs     = (mode === "work" ? wm2 : bm2) * 60 * 1000;
+            remainingMs = totalMs;
+            syncUI();
+            drawRing();
+          }
+        });
+      });
     }
 
     populateTaskSelect();
@@ -258,6 +358,9 @@
   function init() {
     const state = window.APP.getState();
     ensureFocus(state);
+    // Apply saved durations to initial timer state
+    totalMs     = state.focus.workMins * 60 * 1000;
+    remainingMs = totalMs;
   }
 
   // ── register ─────────────────────────────────────────────────────────────────

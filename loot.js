@@ -35,8 +35,10 @@
 
   function ensureLoot(state) {
     if (!state.loot || !Array.isArray(state.loot.inventory)) {
-      state.loot = { inventory: [] };
+      state.loot = { inventory: [], activeBoost: null, streakShield: false };
     }
+    if (!('activeBoost' in state.loot))  state.loot.activeBoost  = null;
+    if (!('streakShield' in state.loot)) state.loot.streakShield = false;
   }
 
   function pickRarity() {
@@ -83,6 +85,119 @@
       // Fallback removal in case transitionend never fires
       setTimeout(() => { if (toast.parentNode) toast.remove(); }, 600);
     }, 3500);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Item Effects
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Determine the mechanical effect of an item based on its name and rarity.
+   * Returns an object: { type, label, description }
+   */
+  function getItemEffect(item) {
+    if (/xp.?boost|warp.?drive|nebula|star.?fragment|energy/i.test(item.name)) {
+      return {
+        type: 'xp2x',
+        label: '⚡ XP Boost activated!',
+        description: 'Next task completed earns double XP.'
+      };
+    }
+    if (/shield|phoenix|protect/i.test(item.name)) {
+      return {
+        type: 'streak_shield',
+        label: '🛡️ Streak Shield activated!',
+        description: 'Your streak is protected for one missed day.'
+      };
+    }
+    if (/focus|crystal|time.?shard|clock|shard/i.test(item.name)) {
+      return {
+        type: 'focus_boost',
+        label: '🎯 Focus Boost activated!',
+        description: '+10 minutes added to your next focus session.'
+      };
+    }
+    if (item.rarity === 'legendary') {
+      return {
+        type: 'bonus_xp_legendary',
+        label: '🌟 Legendary Power!',
+        description: '+100 XP granted instantly.'
+      };
+    }
+    // default: common/rare items without a keyword match → grant 20 XP
+    return {
+      type: 'bonus_xp_common',
+      label: '✨ Item used!',
+      description: '+20 XP granted.'
+    };
+  }
+
+  /**
+   * Show a toast notification for an activated loot effect.
+   */
+  function showEffectToast(effect) {
+    const toast = document.createElement('div');
+    toast.className = 'loot-drop-toast loot-effect-toast';
+    toast.innerHTML = `
+      <span class="toast-emoji">${effect.label.split(' ')[0]}</span>
+      <span class="toast-text">
+        <strong>${effect.label.replace(/^.\S+\s/, '')}</strong>
+        <span>${effect.description}</span>
+      </span>
+    `;
+    document.body.appendChild(toast);
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => toast.classList.add('loot-drop-toast--visible'));
+    });
+
+    setTimeout(() => {
+      toast.classList.remove('loot-drop-toast--visible');
+      toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+      setTimeout(() => { if (toast.parentNode) toast.remove(); }, 600);
+    }, 4000);
+  }
+
+  /**
+   * Apply a loot item's effect to state and remove it from inventory.
+   */
+  function useLootItem(itemId) {
+    const state = window.APP.getState();
+    ensureLoot(state);
+
+    const idx = state.loot.inventory.findIndex(i => i.id === itemId);
+    if (idx === -1) return;
+
+    const item = state.loot.inventory[idx];
+    const effect = getItemEffect(item);
+
+    // Apply effect
+    switch (effect.type) {
+      case 'xp2x':
+        state.loot.activeBoost = { type: 'xp2x', expires: 'next_task' };
+        break;
+      case 'streak_shield':
+        state.loot.streakShield = true;
+        break;
+      case 'focus_boost':
+        state.loot.focusBonus = (state.loot.focusBonus || 0) + 10;
+        break;
+      case 'bonus_xp_legendary':
+        window.APP.gainXP(100);
+        break;
+      case 'bonus_xp_common':
+      default:
+        window.APP.gainXP(20);
+        break;
+    }
+
+    // Remove item from inventory
+    state.loot.inventory.splice(idx, 1);
+
+    window.APP.touchState();
+    window.APP.persist();
+
+    showEffectToast(effect);
   }
 
   // ---------------------------------------------------------------------------
@@ -146,14 +261,19 @@
       return;
     }
 
-    const cards = inventory.map(item => `
-      <div class="loot-card ${item.rarity}" title="${item.desc}">
-        <div class="loot-emoji">${item.emoji}</div>
-        <div class="loot-name">${item.name}</div>
-        <div class="loot-rarity ${item.rarity}">${formatRarity(item.rarity)}</div>
-        <div class="loot-desc">${item.desc}</div>
-      </div>
-    `).join('');
+    const cards = inventory.map(item => {
+      const effect = getItemEffect(item);
+      return `
+        <div class="loot-card ${item.rarity}" title="${item.desc}">
+          <div class="loot-emoji">${item.emoji}</div>
+          <div class="loot-name">${item.name}</div>
+          <div class="loot-rarity ${item.rarity}">${formatRarity(item.rarity)}</div>
+          <div class="loot-desc">${item.desc}</div>
+          <div class="loot-effect-hint">${effect.description}</div>
+          <button class="loot-use-btn ${item.rarity}" data-loot-id="${item.id}">Use</button>
+        </div>
+      `;
+    }).join('');
 
     el.innerHTML = `
       <div class="section-card">
@@ -161,6 +281,14 @@
         <div class="loot-grid">${cards}</div>
       </div>
     `;
+
+    // Event delegation for "Use" buttons
+    el.querySelectorAll('.loot-use-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        useLootItem(btn.dataset.lootId);
+      });
+    });
   }
 
   // ---------------------------------------------------------------------------

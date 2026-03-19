@@ -226,6 +226,13 @@
             aria-label="${doneToday ? "Uncheck habit" : "Check habit"}"
             title="${doneToday ? "Mark incomplete" : "Mark complete"}"
           >${doneToday ? "✓" : ""}</button>
+          <button
+            class="habit-delete-btn"
+            data-id="${habit.id}"
+            data-name="${escapeHtml(habit.name)}"
+            aria-label="Delete habit"
+            title="Delete habit"
+          >×</button>
         </div>
       `;
     }).join("");
@@ -252,6 +259,7 @@
           // Check: mark complete and award XP
           habit.completedDates.push(t);
           window.APP.gainXP(15);
+          if (window.APP.checkChallenges) window.APP.checkChallenges();
         } else {
           // Uncheck: remove today (no XP deduction)
           habit.completedDates.splice(idx, 1);
@@ -260,6 +268,25 @@
         window.APP.touchState();
         window.APP.persist();
         render();
+      });
+    });
+
+    // Wire up delete buttons
+    container.querySelectorAll(".habit-delete-btn").forEach(btn => {
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        const id = this.dataset.id;
+        const name = this.dataset.name;
+        if (!confirm("Delete habit '" + name + "'? This cannot be undone.")) return;
+        const st = window.APP.getState();
+        ensureHabits(st);
+        const idx = st.habits.findIndex(h => h.id === id);
+        if (idx !== -1) {
+          st.habits.splice(idx, 1);
+          window.APP.touchState();
+          window.APP.persist();
+          render();
+        }
       });
     });
   }
@@ -313,11 +340,12 @@
             <div class="habit-dots">${dotsHtml}</div>
           </div>
           <button
-            class="btn-secondary habit-delete-btn"
+            class="habit-delete-btn"
             data-id="${habit.id}"
-            title="Remove habit"
-            style="font-size:0.8rem;padding:4px 8px;align-self:center;"
-          >✕</button>
+            data-name="${escapeHtml(habit.name)}"
+            aria-label="Delete habit"
+            title="Delete habit"
+          >×</button>
         </div>
       `;
     }).join("");
@@ -331,8 +359,11 @@
 
     // Wire up delete buttons
     container.querySelectorAll(".habit-delete-btn").forEach(btn => {
-      btn.addEventListener("click", function () {
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
         const id = this.dataset.id;
+        const name = this.dataset.name;
+        if (!confirm("Delete habit '" + name + "'? This cannot be undone.")) return;
         const st = window.APP.getState();
         ensureHabits(st);
         const idx = st.habits.findIndex(h => h.id === id);

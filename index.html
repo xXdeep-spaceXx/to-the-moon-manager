@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=10">
+    <link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
     <canvas id="galaxy-canvas"></canvas>
@@ -163,8 +163,10 @@
 
                 <div class="section-card">
                     <div class="section-label">Insights</div>
-                    <div id="recommendations" class="insight-text"></div>
-                    <div id="stats" class="insight-text muted"></div>
+                    <div id="recommendations" class="insight-text" style="display:none"></div>
+                    <div id="stats" class="insight-text muted" style="display:none"></div>
+                    <div id="mood-insights" style="display:none"></div>
+                    <div id="insight-cards-container" class="insight-cards"></div>
                 </div>
             </div>
 
@@ -200,11 +202,36 @@
                             <option value="high">High Priority</option>
                         </select>
                     </div>
+                    <div class="due-row">
+                        <label class="due-label" for="task-due">Due date <span class="due-optional">(optional)</span></label>
+                        <input type="date" id="task-due">
+                    </div>
                     <div class="row-gap">
                         <button id="export-btn" class="btn-secondary">Export</button>
                         <label class="btn-secondary file-label">Import <input type="file" id="import-input" accept="application/json" /></label>
                     </div>
                 </div>
+
+                <!-- Filter bar -->
+                <div class="filter-bar" id="task-filter-bar">
+                    <input type="text" id="filter-search" placeholder="Search missions..." class="filter-search">
+                    <select id="filter-category" class="filter-select">
+                        <option value="all">All Categories</option>
+                        <option value="life">🌱 Life</option>
+                        <option value="work">💼 Work</option>
+                        <option value="health">❤️ Health</option>
+                        <option value="learning">📚 Learning</option>
+                        <option value="finance">💰 Finance</option>
+                    </select>
+                    <select id="filter-status" class="filter-select">
+                        <option value="active">Active</option>
+                        <option value="completed">Completed</option>
+                        <option value="all">All</option>
+                    </select>
+                    <button id="filter-clear" class="btn-ghost filter-clear hidden">Clear</button>
+                    <span id="filter-count" class="filter-count"></span>
+                </div>
+
                 <ul id="task-list"></ul>
             </div>
 
@@ -293,10 +320,21 @@
                 </div>
                 <div class="section-card">
                     <div class="section-label">Challenges</div>
-                    <div class="input-row">
-                        <input type="text" id="challenge-title" placeholder="Challenge title">
-                        <input type="text" id="challenge-goal" placeholder="Goal">
-                        <button id="create-challenge" class="btn-secondary">Create</button>
+                    <div class="challenge-form">
+                        <div class="input-row">
+                            <input type="text" id="challenge-title" placeholder="Challenge name">
+                        </div>
+                        <div class="challenge-form-row">
+                            <select id="challenge-type">
+                                <option value="tasks_completed">Complete N tasks</option>
+                                <option value="habits_completed">Maintain N habits today</option>
+                                <option value="focus_sessions">Complete N focus sessions</option>
+                                <option value="xp_earned">Earn N XP</option>
+                            </select>
+                            <input type="number" id="challenge-target" placeholder="Target (e.g. 5)" min="1" max="9999">
+                            <input type="date" id="challenge-deadline">
+                        </div>
+                        <button id="create-challenge" class="btn-primary">Add Challenge</button>
                     </div>
                     <div id="challenge-list"></div>
                 </div>
@@ -431,7 +469,7 @@
     </div>
 
     <script src="node_modules/three/build/three.min.js"></script>
-    <script src="script.js?v=10"></script>
+    <script src="script.js?v=11"></script>
     <script src="habits.js"></script>
     <script src="focus.js"></script>
     <script src="quests.js"></script>

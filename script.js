@@ -8,6 +8,7 @@ const streakText = document.getElementById("streak-indicator");
 const categorySelect = document.getElementById("task-category");
 const difficultySelect = document.getElementById("task-difficulty");
 const prioritySelect = document.getElementById("task-priority");
+const taskDueInput = document.getElementById("task-due");
 const recommendationsEl = document.getElementById("recommendations");
 const statsEl = document.getElementById("stats");
 const authEmail = document.getElementById("auth-email");
@@ -70,7 +71,7 @@ const defaultState = {
     focus: { sessions: [] },
     quests: { date: null, list: [] },
     boss: { weekId: null, title: "", hp: 0, maxHp: 100, defeated: false, rewardClaimed: false },
-    loot: { inventory: [] },
+    loot: { inventory: [], activeBoost: null, streakShield: false, focusBonus: 0 },
     mood: [],
     skills: {
         health:   { xp: 0, level: 1 },
@@ -78,15 +79,96 @@ const defaultState = {
         learning: { xp: 0, level: 1 },
         finance:  { xp: 0, level: 1 },
         life:     { xp: 0, level: 1 }
-    }
+    },
+    challenges: []
 };
 
 const achievementCatalog = [
-    { id: "first-step", title: "First Step", desc: "Complete your first mission.", check: (s) => s.stats.totalCompletions >= 1 },
-    { id: "streak-3", title: "Streak x3", desc: "Reach a 3-day streak.", check: (s) => s.profile.streakDays >= 3 },
-    { id: "streak-7", title: "Streak x7", desc: "Reach a 7-day streak.", check: (s) => s.profile.streakDays >= 7 },
-    { id: "level-5", title: "Orbital Cadet", desc: "Reach level 5.", check: (s) => s.profile.level >= 5 },
-    { id: "epic-1", title: "Epic Commander", desc: "Complete an epic mission.", check: (s) => s.epics.some((e) => e.completedAt) }
+    // ── Missions ──────────────────────────────────────────────────────────────
+    { id: "first-step",      tier: "bronze",   title: "First Step",        desc: "Complete your first mission.",          check: (s) => s.stats.totalCompletions >= 1 },
+    { id: "missions-10",     tier: "silver",   title: "Mission Veteran",   desc: "Complete 10 missions.",                 check: (s) => s.stats.totalCompletions >= 10 },
+    { id: "missions-50",     tier: "gold",     title: "Mission Expert",    desc: "Complete 50 missions.",                 check: (s) => s.stats.totalCompletions >= 50 },
+    { id: "missions-100",    tier: "platinum", title: "Mission Legend",    desc: "Complete 100 missions.",                check: (s) => s.stats.totalCompletions >= 100 },
+
+    // ── Streaks ───────────────────────────────────────────────────────────────
+    { id: "streak-3",        tier: "bronze",   title: "Streak x3",         desc: "Reach a 3-day streak.",                 check: (s) => s.profile.streakDays >= 3 },
+    { id: "streak-7",        tier: "silver",   title: "Streak x7",         desc: "Reach a 7-day streak.",                 check: (s) => s.profile.streakDays >= 7 },
+    { id: "streak-14",       tier: "gold",     title: "Fortnight Fire",    desc: "Reach a 14-day streak.",                check: (s) => s.profile.streakDays >= 14 },
+    { id: "streak-30",       tier: "platinum", title: "Unstoppable",       desc: "Reach a 30-day streak.",                check: (s) => s.profile.streakDays >= 30 },
+
+    // ── XP / Level ────────────────────────────────────────────────────────────
+    { id: "level-3",         tier: "bronze",   title: "Rising Star",       desc: "Reach level 3.",                        check: (s) => s.profile.level >= 3 },
+    { id: "level-5",         tier: "silver",   title: "Orbital Cadet",     desc: "Reach level 5.",                        check: (s) => s.profile.level >= 5 },
+    { id: "level-10",        tier: "gold",     title: "Stellar Pilot",     desc: "Reach level 10.",                       check: (s) => s.profile.level >= 10 },
+    { id: "level-15",        tier: "platinum", title: "Cosmic Admiral",    desc: "Reach level 15.",                       check: (s) => s.profile.level >= 15 },
+
+    // ── Habits ────────────────────────────────────────────────────────────────
+    { id: "habit-first",     tier: "bronze",   title: "New Habit",         desc: "Log your first habit check-in.",        check: (s) => Array.isArray(s.habits) && s.habits.some((h) => h.completedDates && h.completedDates.length >= 1) },
+    { id: "habit-streak-7",  tier: "silver",   title: "Habit Warrior",     desc: "Maintain any habit for 7 consecutive days.", check: (s) => {
+        if (!Array.isArray(s.habits)) return false;
+        return s.habits.some((h) => {
+            if (!h.completedDates || h.completedDates.length < 7) return false;
+            // Check for 7 consecutive dates ending at the most recent logged date
+            const sorted = [...h.completedDates].sort();
+            let streak = 1;
+            for (let i = sorted.length - 1; i > 0; i--) {
+                const diff = (new Date(sorted[i]) - new Date(sorted[i - 1])) / 86400000;
+                if (diff === 1) { streak++; if (streak >= 7) return true; }
+                else if (diff > 1) streak = 1;
+            }
+            return streak >= 7;
+        });
+    }},
+    { id: "habit-streak-30", tier: "gold",     title: "Habit Master",      desc: "Maintain any habit for 30 consecutive days.", check: (s) => {
+        if (!Array.isArray(s.habits)) return false;
+        return s.habits.some((h) => {
+            if (!h.completedDates || h.completedDates.length < 30) return false;
+            const sorted = [...h.completedDates].sort();
+            let streak = 1;
+            for (let i = sorted.length - 1; i > 0; i--) {
+                const diff = (new Date(sorted[i]) - new Date(sorted[i - 1])) / 86400000;
+                if (diff === 1) { streak++; if (streak >= 30) return true; }
+                else if (diff > 1) streak = 1;
+            }
+            return streak >= 30;
+        });
+    }},
+
+    // ── Focus Sessions ────────────────────────────────────────────────────────
+    { id: "focus-first",     tier: "bronze",   title: "In the Zone",       desc: "Complete your first focus session.",    check: (s) => s.focus && Array.isArray(s.focus.sessions) && s.focus.sessions.length >= 1 },
+    { id: "focus-10",        tier: "silver",   title: "Deep Focus",        desc: "Complete 10 focus sessions.",           check: (s) => s.focus && Array.isArray(s.focus.sessions) && s.focus.sessions.length >= 10 },
+    { id: "focus-50",        tier: "gold",     title: "Flow State",        desc: "Complete 50 focus sessions.",           check: (s) => s.focus && Array.isArray(s.focus.sessions) && s.focus.sessions.length >= 50 },
+
+    // ── Loot ──────────────────────────────────────────────────────────────────
+    { id: "loot-first",      tier: "bronze",   title: "Lucky Drop",        desc: "Collect your first loot item.",         check: (s) => s.loot && Array.isArray(s.loot.inventory) && s.loot.inventory.length >= 1 },
+    { id: "loot-10",         tier: "silver",   title: "Treasure Hunter",   desc: "Collect 10 loot items.",                check: (s) => s.loot && Array.isArray(s.loot.inventory) && s.loot.inventory.length >= 10 },
+    { id: "loot-legendary",  tier: "gold",     title: "Legendary Haul",    desc: "Collect a legendary loot item.",        check: (s) => s.loot && Array.isArray(s.loot.inventory) && s.loot.inventory.some((item) => item.rarity === "legendary") },
+
+    // ── Mood ──────────────────────────────────────────────────────────────────
+    { id: "mood-first",      tier: "bronze",   title: "Self-Aware",        desc: "Log your first mood check-in.",         check: (s) => Array.isArray(s.mood) && s.mood.length >= 1 },
+    { id: "mood-streak-7",   tier: "silver",   title: "Mind Monitor",      desc: "Log mood check-ins 7 days in a row.",  check: (s) => {
+        if (!Array.isArray(s.mood) || s.mood.length < 7) return false;
+        const dates = s.mood.map((e) => e.date).sort();
+        let streak = 1;
+        for (let i = dates.length - 1; i > 0; i--) {
+            const diff = (new Date(dates[i]) - new Date(dates[i - 1])) / 86400000;
+            if (diff === 1) { streak++; if (streak >= 7) return true; }
+            else if (diff > 1) streak = 1;
+        }
+        return streak >= 7;
+    }},
+
+    // ── Quests ────────────────────────────────────────────────────────────────
+    { id: "quest-first",     tier: "bronze",   title: "Quest Taker",       desc: "Complete your first daily quest.",      check: (s) => s.quests && Array.isArray(s.quests.list) && s.quests.list.some((q) => q.claimed) },
+    { id: "boss-first",      tier: "silver",   title: "Boss Slayer",       desc: "Defeat your first weekly boss.",        check: (s) => s.boss && s.boss.defeated },
+
+    // ── Epics ─────────────────────────────────────────────────────────────────
+    { id: "epic-create",     tier: "bronze",   title: "Epic Dreamer",      desc: "Create your first epic mission.",       check: (s) => Array.isArray(s.epics) && s.epics.length >= 1 },
+    { id: "epic-1",          tier: "gold",     title: "Epic Commander",    desc: "Complete an epic mission.",             check: (s) => s.epics.some((e) => e.completedAt) },
+
+    // ── Skills ────────────────────────────────────────────────────────────────
+    { id: "skill-level-3",   tier: "bronze",   title: "Skill Awakening",   desc: "Reach level 3 in any skill.",           check: (s) => s.skills && Object.values(s.skills).some((sk) => sk.level >= 3) },
+    { id: "skill-level-5",   tier: "silver",   title: "Skill Mastery",     desc: "Reach level 5 in any skill.",           check: (s) => s.skills && Object.values(s.skills).some((sk) => sk.level >= 5) },
 ];
 
 let state = { ...defaultState };
@@ -95,6 +177,11 @@ let selectedEpicId = null;
 let roadmapAnimId = null;
 let roadmapTime = 0;
 
+// ─── Task Filter State ────────────────────────────────────────────────────────
+let taskFilterText = '';
+let taskFilterCategory = 'all';
+let taskFilterStatus = 'active';
+
 // ─── Module API (shared with feature modules) ─────────────────────────────────
 window.APP = {
     getState:         () => state,
@@ -102,6 +189,7 @@ window.APP = {
     touchState:       () => touchState(),
     gainXP:           (n) => gainXP(n),
     persist:          () => persistAndRender(),
+    checkChallenges:  () => checkChallenges(),
     taskCompleteHooks: [],
     renderHooks:       [],
     modules:           {}
@@ -353,6 +441,29 @@ document.querySelectorAll(".nav-item[data-page]").forEach((item) => {
 // ─── Event Listeners ──────────────────────────────────────────────────────────
 addBtn.addEventListener("click", addTask);
 taskInput.addEventListener("keypress", (e) => { if (e.key === "Enter") addTask(); });
+
+// Task filter listeners
+document.getElementById('filter-search').addEventListener('input', (e) => {
+    taskFilterText = e.target.value.trim();
+    renderTasks();
+});
+document.getElementById('filter-category').addEventListener('change', (e) => {
+    taskFilterCategory = e.target.value;
+    renderTasks();
+});
+document.getElementById('filter-status').addEventListener('change', (e) => {
+    taskFilterStatus = e.target.value;
+    renderTasks();
+});
+document.getElementById('filter-clear').addEventListener('click', () => {
+    taskFilterText = '';
+    taskFilterCategory = 'all';
+    taskFilterStatus = 'active';
+    document.getElementById('filter-search').value = '';
+    document.getElementById('filter-category').value = 'all';
+    document.getElementById('filter-status').value = 'active';
+    renderTasks();
+});
 signupBtn.addEventListener("click", signup);
 loginBtn.addEventListener("click", login);
 logoutBtn.addEventListener("click", logout);
@@ -365,10 +476,9 @@ addEpicBtn.addEventListener("click", addEpic);
 addSubtaskBtn.addEventListener("click", addSubtask);
 planEpicBtn.addEventListener("click", planEpic);
 saveProfileBtn.addEventListener("click", saveProfile);
+document.getElementById("create-challenge").addEventListener("click", addChallenge);
 document.getElementById("hof-add").addEventListener("click", addHofManual);
-document.getElementById("hof-ai").addEventListener("click", () => {
-    authMessage.innerText = "AI Tokens are a Pro feature.";
-});
+document.getElementById("hof-ai").addEventListener("click", addHofAI);
 
 // ─── Storage Adapters ─────────────────────────────────────────────────────────
 function createStorageAdapter(cfg) {
@@ -445,6 +555,14 @@ function normalizeState(loaded) {
     const profile = loaded.profile || {};
     const stats = loaded.stats || {};
     const meta = loaded.meta || {};
+    // Normalize loot — preserve inventory plus new effect-state fields
+    const loadedLoot = loaded.loot || {};
+    const loot = {
+        inventory:   Array.isArray(loadedLoot.inventory) ? loadedLoot.inventory : [],
+        activeBoost:  loadedLoot.activeBoost  ?? null,
+        streakShield: loadedLoot.streakShield ?? false,
+        focusBonus:   loadedLoot.focusBonus   ?? 0,
+    };
     return {
         version: STATE_VERSION,
         meta: { lastModified: meta.lastModified ?? null, lastSync: meta.lastSync ?? null, conflict: meta.conflict ?? false },
@@ -454,7 +572,22 @@ function normalizeState(loaded) {
         epics: Array.isArray(loaded.epics) ? loaded.epics : [],
         achievements: { unlocked: loaded.achievements?.unlocked || [] },
         hallOfFame: Array.isArray(loaded.hallOfFame) ? loaded.hallOfFame : [],
-        publicProfile: { displayName: loaded.publicProfile?.displayName || "", tagline: loaded.publicProfile?.tagline || "", isPublic: loaded.publicProfile?.isPublic || false }
+        publicProfile: { displayName: loaded.publicProfile?.displayName || "", tagline: loaded.publicProfile?.tagline || "", isPublic: loaded.publicProfile?.isPublic || false },
+        // Feature module state — pass through from saved data, falling back to defaults
+        habits:  Array.isArray(loaded.habits) ? loaded.habits : [],
+        focus:   loaded.focus && Array.isArray(loaded.focus.sessions) ? loaded.focus : { sessions: [] },
+        quests:  loaded.quests || { date: null, list: [] },
+        boss:    loaded.boss   || { weekId: null, title: "", hp: 0, maxHp: 100, defeated: false, rewardClaimed: false },
+        loot,
+        mood:    Array.isArray(loaded.mood) ? loaded.mood : [],
+        skills:  loaded.skills || {
+            health:   { xp: 0, level: 1 },
+            work:     { xp: 0, level: 1 },
+            learning: { xp: 0, level: 1 },
+            finance:  { xp: 0, level: 1 },
+            life:     { xp: 0, level: 1 }
+        },
+        challenges: Array.isArray(loaded.challenges) ? loaded.challenges : []
     };
 }
 
@@ -469,25 +602,159 @@ function render() {
     renderEpics();
     renderProfilePreview();
     renderSimilarUsers();
+    renderChallenges();
     // Feature module renders
     window.APP.renderHooks.forEach(fn => { try { fn(); } catch(e) { console.warn("render hook error", e); } });
 }
 
+function getDueDateStatus(dueDate) {
+    if (!dueDate) return null;
+    const today = new Date().toISOString().slice(0, 10);
+    if (dueDate < today) return "overdue";
+    if (dueDate === today) return "today";
+    return "future";
+}
+
+function renderDueDateLabel(dueDate) {
+    if (!dueDate) return "";
+    const status = getDueDateStatus(dueDate);
+    const formatted = new Date(dueDate + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    if (status === "overdue") {
+        return `<span class="task-due-label task-due-overdue">Overdue · ${formatted}</span>`;
+    } else if (status === "today") {
+        return `<span class="task-due-label task-due-today">Due today · ${formatted}</span>`;
+    } else {
+        return `<span class="task-due-label">Due ${formatted}</span>`;
+    }
+}
+
+function dueSortKey(task) {
+    if (!task.dueDate) return 3;
+    const status = getDueDateStatus(task.dueDate);
+    if (status === "overdue") return 0;
+    if (status === "today") return 1;
+    return 2;
+}
+
 function renderTasks() {
     taskList.innerHTML = "";
-    const activeTasks = state.tasks.filter((t) => t.status === "active");
-    activeTasks.forEach((task) => {
+
+    // Apply status filter
+    let pool = state.tasks.slice();
+    if (taskFilterStatus === 'active')    pool = pool.filter(t => t.status === 'active');
+    else if (taskFilterStatus === 'completed') pool = pool.filter(t => t.status === 'completed');
+
+    const totalInStatus = pool.length;
+
+    // Apply category filter
+    if (taskFilterCategory !== 'all') pool = pool.filter(t => t.category === taskFilterCategory);
+
+    // Apply text search
+    if (taskFilterText) {
+        const q = taskFilterText.toLowerCase();
+        pool = pool.filter(t => t.text.toLowerCase().includes(q));
+    }
+
+    // Sort active tasks by due date; completed tasks by completion time (newest first)
+    if (taskFilterStatus !== 'completed') {
+        pool.sort((a, b) => dueSortKey(a) - dueSortKey(b));
+    }
+
+    const visibleCount = pool.length;
+    const totalAll = state.tasks.length;
+
+    // Update count label
+    const countEl = document.getElementById('filter-count');
+    if (countEl) {
+        const isFiltered = taskFilterText || taskFilterCategory !== 'all' || taskFilterStatus !== 'active';
+        countEl.textContent = isFiltered
+            ? `Showing ${visibleCount} of ${totalAll} missions`
+            : `${visibleCount} mission${visibleCount !== 1 ? 's' : ''}`;
+    }
+
+    // Show/hide clear button
+    const clearBtn = document.getElementById('filter-clear');
+    if (clearBtn) {
+        const hasActiveFilter = taskFilterText || taskFilterCategory !== 'all' || taskFilterStatus !== 'active';
+        clearBtn.classList.toggle('hidden', !hasActiveFilter);
+    }
+
+    pool.forEach((task) => {
         const li = document.createElement("li");
         li.dataset.taskId = task.id;
+        const isDone = task.status === 'completed';
         li.innerHTML = `
             <div class="task-content">
-                <span class="task-text">${task.text}</span>
+                <span class="task-text"${isDone ? ' style="opacity:0.5;text-decoration:line-through"' : ''}>${task.text}</span>
                 <span class="task-meta">${task.category} · ${task.difficulty} · ${task.priority}</span>
+                ${renderDueDateLabel(task.dueDate)}
             </div>
+            <div class="task-actions">
+                ${isDone ? '' : '<button class="edit-btn" title="Edit task">✎</button>'}
+                ${isDone ? '' : '<button class="delete-btn" title="Mark complete">✓</button>'}
+            </div>
+        `;
+        if (!isDone) {
+            li.querySelector(".delete-btn").addEventListener("click", () => completeTask(task.id));
+            li.querySelector(".edit-btn").addEventListener("click", () => startInlineEdit(task, li));
+        }
+        taskList.appendChild(li);
+    });
+}
+
+function startInlineEdit(task, li) {
+    // Prevent double-editing
+    if (li.classList.contains("editing")) return;
+    li.classList.add("editing");
+
+    const contentEl = li.querySelector(".task-content");
+    const textEl = li.querySelector(".task-text");
+    const actionsEl = li.querySelector(".task-actions");
+
+    const originalText = task.text;
+
+    // Replace task text span with an input
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = originalText;
+    input.className = "task-edit-input";
+    textEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    // Replace action buttons with save/cancel
+    actionsEl.innerHTML = `
+        <button class="edit-save-btn" title="Save">✓</button>
+        <button class="edit-cancel-btn" title="Cancel">✕</button>
+    `;
+
+    function saveEdit() {
+        const newText = input.value.trim();
+        if (newText && newText !== originalText) {
+            task.text = newText;
+            touchState();
+            persistAndRender();
+        } else {
+            cancelEdit();
+        }
+    }
+
+    function cancelEdit() {
+        li.classList.remove("editing");
+        input.replaceWith(textEl);
+        actionsEl.innerHTML = `
+            <button class="edit-btn" title="Edit task">✎</button>
             <button class="delete-btn" title="Mark complete">✓</button>
         `;
-        li.querySelector(".delete-btn").addEventListener("click", () => completeTask(task.id));
-        taskList.appendChild(li);
+        actionsEl.querySelector(".delete-btn").addEventListener("click", () => completeTask(task.id));
+        actionsEl.querySelector(".edit-btn").addEventListener("click", () => startInlineEdit(task, li));
+    }
+
+    actionsEl.querySelector(".edit-save-btn").addEventListener("click", saveEdit);
+    actionsEl.querySelector(".edit-cancel-btn").addEventListener("click", cancelEdit);
+    input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") saveEdit();
+        if (e.key === "Escape") cancelEdit();
     });
 }
 
@@ -1397,14 +1664,249 @@ function renderHud() {
     renderShip(state.profile.level);
 }
 
+// ─── Mood Insights ────────────────────────────────────────────────────────────
+function getMoodInsights(appState) {
+    const entries = Array.isArray(appState.mood) ? appState.mood : [];
+    if (entries.length === 0) {
+        return ["Log your mood daily to unlock energy insights."];
+    }
+
+    // Sort ascending by date, take last 14 entries
+    const sorted = [...entries]
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .slice(-14);
+
+    if (sorted.length < 2) {
+        return ["Keep checking in — more data unlocks personalised energy insights."];
+    }
+
+    const insights = [];
+
+    // ── Insight 1: energy trend over last 7 days ──────────────────────────────
+    const last7 = sorted.slice(-7);
+    if (last7.length >= 3) {
+        const avg7 = last7.reduce((s, e) => s + e.energy, 0) / last7.length;
+
+        // Split into first half / second half to detect trend direction
+        const half = Math.floor(last7.length / 2);
+        const firstHalf  = last7.slice(0, half);
+        const secondHalf = last7.slice(-half);
+        const avgFirst  = firstHalf.reduce((s, e) => s + e.energy, 0) / firstHalf.length;
+        const avgSecond = secondHalf.reduce((s, e) => s + e.energy, 0) / secondHalf.length;
+        const delta = avgSecond - avgFirst;
+
+        if (avg7 >= 4) {
+            insights.push("Your energy has been high this week — great time to tackle hard tasks.");
+        } else if (avg7 <= 2) {
+            insights.push("Energy has been low this week — consider a lighter workload or a rest day.");
+        } else if (delta >= 0.6) {
+            insights.push("Mood trending up over the last 7 days — keep the momentum going.");
+        } else if (delta <= -0.6) {
+            insights.push("Mood trending down over the last 7 days — consider taking a break.");
+        } else {
+            insights.push(`Your average energy this week is ${avg7.toFixed(1)}/5 — steady and consistent.`);
+        }
+    }
+
+    // ── Insight 2: best days of the week ─────────────────────────────────────
+    const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const dayTotals = {};
+    const dayCounts = {};
+    sorted.forEach(e => {
+        const [year, month, day] = e.date.split('-').map(Number);
+        const dow = new Date(year, month - 1, day).getDay();
+        dayTotals[dow] = (dayTotals[dow] || 0) + e.energy;
+        dayCounts[dow] = (dayCounts[dow] || 0) + 1;
+    });
+
+    // Only consider days with at least 2 data points
+    const dayAvgs = Object.keys(dayCounts)
+        .filter(d => dayCounts[d] >= 2)
+        .map(d => ({ dow: Number(d), avg: dayTotals[d] / dayCounts[d] }))
+        .sort((a, b) => b.avg - a.avg);
+
+    if (dayAvgs.length >= 2) {
+        const best = dayAvgs.slice(0, 2).map(d => DAY_NAMES[d.dow]);
+        insights.push(`Your best days: ${best.join(" & ")} — schedule important tasks then.`);
+    } else if (dayAvgs.length === 1 && dayAvgs[0].avg >= 3.5) {
+        insights.push(`Your best day: ${DAY_NAMES[dayAvgs[0].dow]} — schedule important tasks then.`);
+    }
+
+    // ── Insight 3: task completion correlation with high energy ───────────────
+    // We need at least 5 paired data points (mood entry + tasks completed that day)
+    const completedTasks = (appState.tasks || []).filter(t => t.status === "completed" && t.completedAt);
+    if (completedTasks.length > 0 && sorted.length >= 5) {
+        // Count completions per date string
+        const tasksByDate = {};
+        completedTasks.forEach(t => {
+            const d = new Date(t.completedAt).toISOString().slice(0, 10);
+            tasksByDate[d] = (tasksByDate[d] || 0) + 1;
+        });
+
+        // Pair mood entries that have completion data
+        const paired = sorted.filter(e => tasksByDate[e.date] !== undefined);
+        if (paired.length >= 3) {
+            const highEnergy = paired.filter(e => e.energy >= 4);
+            const lowEnergy  = paired.filter(e => e.energy <= 2);
+            if (highEnergy.length >= 2 && lowEnergy.length >= 2) {
+                const avgHigh = highEnergy.reduce((s, e) => s + tasksByDate[e.date], 0) / highEnergy.length;
+                const avgLow  = lowEnergy.reduce((s, e)  => s + tasksByDate[e.date], 0) / lowEnergy.length;
+                if (avgLow > 0 && avgHigh / avgLow >= 1.5) {
+                    const multiplier = (avgHigh / avgLow).toFixed(1);
+                    insights.push(`You complete ${multiplier}x more tasks on high-energy days — energy is your superpower.`);
+                }
+            }
+        }
+    }
+
+    // Return at most 2 insights to keep the card concise
+    return insights.slice(0, 2);
+}
+
+// ─── Insights Engine ──────────────────────────────────────────────────────────
+// Returns an array of insight objects: { type, emoji, message }
+// type is one of: "warning" | "positive" | "info"
+function computeInsights(s) {
+    const insights = [];
+    const today = new Date().toISOString().slice(0, 10);
+    const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+
+    // ── Empty state ───────────────────────────────────────────────────────────
+    const allTasks = Array.isArray(s.tasks) ? s.tasks : [];
+    if (allTasks.length === 0) {
+        insights.push({ type: "info", emoji: "🚀", message: "Add your first mission to get started!" });
+        return insights;
+    }
+
+    // ── Streak risk ───────────────────────────────────────────────────────────
+    const streak = s.profile ? (s.profile.streakDays || 0) : 0;
+    if (streak > 0) {
+        const completedTasks = allTasks.filter(t => t.status === "completed" && t.completedAt);
+        const completedToday = completedTasks.some(t => t.completedAt.slice(0, 10) === today);
+        if (!completedToday) {
+            insights.push({
+                type: "warning",
+                emoji: "⚠️",
+                message: `Your ${streak}-day streak is at risk — complete a task today!`
+            });
+        }
+    }
+
+    // ── XP velocity (this week vs last week) ─────────────────────────────────
+    const completedWithXp = allTasks.filter(t => t.status === "completed" && t.completedAt && t.xpValue);
+    if (completedWithXp.length >= 2) {
+        const now = new Date();
+        // Start of this week (Monday)
+        const startOfThisWeek = new Date(now);
+        startOfThisWeek.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+        startOfThisWeek.setHours(0, 0, 0, 0);
+        const startOfLastWeek = new Date(startOfThisWeek);
+        startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
+
+        let thisWeekXp = 0;
+        let lastWeekXp = 0;
+        completedWithXp.forEach(t => {
+            const d = new Date(t.completedAt);
+            if (d >= startOfThisWeek) thisWeekXp += t.xpValue;
+            else if (d >= startOfLastWeek) lastWeekXp += t.xpValue;
+        });
+
+        if (lastWeekXp > 0 && thisWeekXp > 0) {
+            const pct = Math.round(((thisWeekXp - lastWeekXp) / lastWeekXp) * 100);
+            if (pct >= 10) {
+                insights.push({ type: "positive", emoji: "📈", message: `You earned ${pct}% more XP this week than last — great momentum!` });
+            } else if (pct <= -10) {
+                insights.push({ type: "warning", emoji: "📉", message: `XP slowing down — push through and complete more missions!` });
+            }
+        } else if (thisWeekXp > 0 && lastWeekXp === 0) {
+            insights.push({ type: "positive", emoji: "📈", message: `Great start this week — you've earned ${thisWeekXp} XP so far!` });
+        }
+    }
+
+    // ── Skill imbalance ───────────────────────────────────────────────────────
+    const skills = s.skills || {};
+    const skillEntries = Object.entries(skills); // [ [name, {xp, level}] ]
+    if (skillEntries.length >= 2) {
+        const levels = skillEntries.map(([, sk]) => sk.level || 1);
+        const maxLevel = Math.max(...levels);
+        const minLevel = Math.min(...levels);
+        if (maxLevel - minLevel >= 2) {
+            const leadSkill = skillEntries.find(([, sk]) => (sk.level || 1) === maxLevel);
+            const lagSkill  = skillEntries.find(([, sk]) => (sk.level || 1) === minLevel);
+            const capitalize = str => str.charAt(0).toUpperCase() + str.slice(1);
+            insights.push({
+                type: "info",
+                emoji: "⚖️",
+                message: `Your ${capitalize(leadSkill[0])} skill is racing ahead (Lv ${maxLevel}) — don't neglect ${capitalize(lagSkill[0])} (Lv ${minLevel})`
+            });
+        }
+    }
+
+    // ── Habit consistency ─────────────────────────────────────────────────────
+    const habits = Array.isArray(s.habits) ? s.habits : [];
+    if (habits.length > 0) {
+        const doneToday = habits.filter(h =>
+            Array.isArray(h.completedDates) && h.completedDates.includes(today)
+        ).length;
+        const total = habits.length;
+        if (doneToday === total) {
+            insights.push({ type: "positive", emoji: "💪", message: `All ${total} habit${total > 1 ? "s" : ""} done today — keep it up!` });
+        } else {
+            insights.push({ type: "info", emoji: "✅", message: `You've completed ${doneToday}/${total} habits today — keep going!` });
+        }
+    }
+
+    // ── Productive day pattern ────────────────────────────────────────────────
+    const completedWithDate = allTasks.filter(t => t.status === "completed" && t.completedAt);
+    if (completedWithDate.length >= 5) {
+        const dowCounts = {};
+        completedWithDate.forEach(t => {
+            const d = new Date(t.completedAt);
+            const dow = d.getDay();
+            dowCounts[dow] = (dowCounts[dow] || 0) + 1;
+        });
+        const bestDow = Object.entries(dowCounts).sort((a, b) => b[1] - a[1])[0];
+        if (bestDow) {
+            insights.push({
+                type: "info",
+                emoji: "📅",
+                message: `You're most productive on ${DAY_NAMES[Number(bestDow[0])]}s — schedule your hardest tasks then!`
+            });
+        }
+    }
+
+    // ── Level up proximity ────────────────────────────────────────────────────
+    const xp = s.profile ? (s.profile.xp || 0) : 0;
+    const level = s.profile ? (s.profile.level || 1) : 1;
+    const xpRemaining = 100 - xp;
+    if (xpRemaining <= 20 && xpRemaining > 0) {
+        insights.push({
+            type: "positive",
+            emoji: "⚡",
+            message: `You're ${xpRemaining} XP away from Level ${level + 1} — almost there!`
+        });
+    }
+
+    // ── Mood / energy insight (first one from getMoodInsights) ────────────────
+    const moodLines = getMoodInsights(s);
+    if (moodLines.length > 0 && !moodLines[0].startsWith("Log your mood")) {
+        insights.push({ type: "info", emoji: "🧠", message: moodLines[0] });
+    }
+
+    return insights.slice(0, 5);
+}
+
 function renderInsights() {
-    const topCategory = mostFrequentKey(state.stats.completionsByCategory);
-    const topDifficulty = mostFrequentKey(state.stats.completionsByDifficulty);
-    const avgMins = state.stats.avgCompletionMs ? Math.round(state.stats.avgCompletionMs / 60000) : 0;
-    recommendationsEl.innerText = topCategory
-        ? `Recommended: Schedule 1 ${topCategory} mission today.`
-        : "Recommended: Add your first mission and complete it.";
-    statsEl.innerText = `Top category: ${topCategory || "n/a"}  ·  Top difficulty: ${topDifficulty || "n/a"}  ·  Avg completion: ${avgMins} min`;
+    const cards = computeInsights(state);
+    const container = document.getElementById("insight-cards-container");
+    if (!container) return;
+
+    container.innerHTML = cards.map(insight => `
+        <div class="insight-card type-${insight.type}">
+            <span class="insight-card-emoji">${insight.emoji}</span>
+            <span class="insight-card-text">${insight.message}</span>
+        </div>
+    `).join("");
 }
 
 function renderConflictBanner() {
@@ -1421,10 +1923,15 @@ function renderAchievements() {
     achievementsEl.innerHTML = "";
     const unlocked = new Set(state.achievements.unlocked);
     achievementCatalog.forEach((ach) => {
+        const isUnlocked = unlocked.has(ach.id);
+        const tier = ach.tier || "bronze";
         const card = document.createElement("div");
-        card.className = `achievement-card${unlocked.has(ach.id) ? "" : " locked"}`;
+        card.className = `achievement-card tier-${tier}${isUnlocked ? "" : " locked"}`;
         card.innerHTML = `
-            <div class="badge">${unlocked.has(ach.id) ? "✓ Unlocked" : "Locked"}</div>
+            <div class="achievement-tier-badges">
+                <span class="badge badge-tier-${tier}">${tier.charAt(0).toUpperCase() + tier.slice(1)}</span>
+                <span class="badge${isUnlocked ? " badge-unlocked" : " badge-locked"}">${isUnlocked ? "✓ Unlocked" : "Locked"}</span>
+            </div>
             <strong>${ach.title}</strong>
             <p style="font-size:13px;color:var(--text-secondary);margin-top:4px">${ach.desc}</p>
         `;
@@ -1439,10 +1946,11 @@ function renderHallOfFame() {
         return;
     }
     state.hallOfFame.forEach((token) => {
+        const rarityKey = (token.rarity || "Common").toLowerCase();
         const card = document.createElement("div");
-        card.className = "hall-card";
+        card.className = `hall-card rarity-${rarityKey}`;
         card.innerHTML = `
-            <span class="badge">${token.rarity}</span>
+            <span class="badge badge-${rarityKey}">${token.rarity}</span>
             <strong>${token.title}</strong>
             <p style="font-size:13px;color:var(--text-secondary);margin-top:4px">${token.description}</p>
             <div class="hud-sub" style="margin-top:8px">${new Date(token.earnedAt).toLocaleDateString()}</div>
@@ -1527,10 +2035,12 @@ function addTask() {
         status: "active",
         createdAt: new Date().toISOString(),
         completedAt: null,
-        xpValue: calcTaskXp(difficultySelect.value, prioritySelect.value)
+        xpValue: calcTaskXp(difficultySelect.value, prioritySelect.value),
+        dueDate: taskDueInput.value || null
     };
     state.tasks.push(task);
     taskInput.value = "";
+    taskDueInput.value = "";
     touchState();
     persistAndRender();
 }
@@ -1542,8 +2052,17 @@ function completeTask(taskId) {
     task.completedAt = new Date().toISOString();
     updateStats(task);
     updateStreak(task.completedAt);
-    gainXP(task.xpValue);
+
+    // Apply XP boost if one is active
+    let xpAmount = task.xpValue;
+    if (state.loot?.activeBoost?.type === 'xp2x') {
+        xpAmount = xpAmount * 2;
+        state.loot.activeBoost = null; // consume after one task
+    }
+    gainXP(xpAmount);
+
     checkAchievements();
+    checkChallenges();
     touchState();
     persistAndRender();
     // Fire task-complete hooks for feature modules
@@ -1588,13 +2107,203 @@ function completeEpic(epicId) {
 }
 
 function planEpic() {
-    if (!config.premium.aiPlanner) {
-        authMessage.innerText = "AI Planner is a Pro feature.";
+    // Remove any existing suggestion panel
+    const existing = document.getElementById("ai-plan-panel");
+    if (existing) { existing.remove(); return; }
+
+    // Determine source title: prefer selected epic, fall back to epic input
+    let title = "";
+    let sourceEpicId = selectedEpicId;
+    if (sourceEpicId) {
+        const sel = state.epics.find((e) => e.id === sourceEpicId);
+        if (sel) title = sel.title;
     }
+    if (!title) title = epicInput.value.trim();
+    if (!title) {
+        epicHint.innerText = "Type an epic name or select an epic first, then click AI Plan.";
+        return;
+    }
+
+    // Keyword → project type mapping
+    const RULES = [
+        {
+            keys: ["fitness","workout","gym","health","run","running","exercise","training"],
+            subtasks: [
+                "Set weekly schedule",
+                "Track starting metrics",
+                "Research proper form",
+                "Find accountability partner",
+                "Set 30-day milestone goal",
+                "Prepare equipment/gear"
+            ]
+        },
+        {
+            keys: ["learn","study","course","skill","book","read","reading","tutorial"],
+            subtasks: [
+                "Define learning objectives",
+                "Gather resources and materials",
+                "Create study schedule",
+                "Take notes and summarize",
+                "Practice with exercises",
+                "Test understanding with project"
+            ]
+        },
+        {
+            keys: ["build","create","develop","app","website","project","code","coding","software"],
+            subtasks: [
+                "Define requirements and scope",
+                "Design architecture/wireframe",
+                "Set up development environment",
+                "Build core functionality",
+                "Test and debug",
+                "Deploy and document"
+            ]
+        },
+        {
+            keys: ["business","launch","startup","product","market","marketing","monetize","sell"],
+            subtasks: [
+                "Validate the idea with research",
+                "Define target audience",
+                "Create MVP plan",
+                "Set revenue/growth goals",
+                "Plan marketing strategy",
+                "Set launch date milestone"
+            ]
+        },
+        {
+            keys: ["write","blog","book","essay","content","writing","article","novel"],
+            subtasks: [
+                "Outline structure and key points",
+                "Research and gather sources",
+                "Write first draft",
+                "Edit and revise",
+                "Get feedback from others",
+                "Finalize and publish"
+            ]
+        },
+        {
+            keys: ["move","relocate","travel","trip","vacation","journey"],
+            subtasks: [
+                "Research destination/location",
+                "Create budget and timeline",
+                "Handle logistics and booking",
+                "Prepare checklist of tasks",
+                "Notify relevant parties",
+                "Plan arrival/settlement steps"
+            ]
+        }
+    ];
+
+    const DEFAULT_SUBTASKS = [
+        "Define the goal clearly",
+        "Break into first milestones",
+        "Identify potential obstacles",
+        "Gather required resources",
+        "Set a timeline",
+        "Define success criteria"
+    ];
+
+    // Match keywords
+    const lower = title.toLowerCase();
+    let suggestions = DEFAULT_SUBTASKS;
+    for (const rule of RULES) {
+        if (rule.keys.some((k) => lower.includes(k))) {
+            suggestions = rule.subtasks;
+            break;
+        }
+    }
+
+    // Build the panel
+    const panel = document.createElement("div");
+    panel.id = "ai-plan-panel";
+    panel.className = "ai-plan-panel";
+
+    const heading = document.createElement("div");
+    heading.className = "ai-plan-heading";
+    heading.innerHTML = `<span class="ai-plan-title">✦ Suggested Subtasks</span><span class="ai-plan-for">for &ldquo;${title}&rdquo;</span>`;
+    panel.appendChild(heading);
+
+    const list = document.createElement("div");
+    list.className = "ai-plan-list";
+    suggestions.forEach((text) => {
+        const item = document.createElement("label");
+        item.className = "ai-plan-item";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = true;
+        cb.value = text;
+        const span = document.createElement("span");
+        span.textContent = text;
+        item.appendChild(cb);
+        item.appendChild(span);
+        list.appendChild(item);
+    });
+    panel.appendChild(list);
+
+    const footer = document.createElement("div");
+    footer.className = "ai-plan-footer";
+
+    const addBtn = document.createElement("button");
+    addBtn.className = "btn-primary";
+    addBtn.textContent = "Add Selected";
+    addBtn.addEventListener("click", () => {
+        const checked = [...list.querySelectorAll("input[type=checkbox]:checked")];
+        if (!checked.length) { panel.remove(); return; }
+
+        // If no epic is selected, try to create one from epicInput first
+        let targetId = sourceEpicId;
+        if (!targetId) {
+            const newTitle = epicInput.value.trim();
+            if (!newTitle) {
+                epicHint.innerText = "Select or create an epic first.";
+                return;
+            }
+            // Create a new epic inline
+            const newEpic = {
+                id: `epic_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                title: newTitle,
+                subtasks: [],
+                createdAt: new Date().toISOString(),
+                completedAt: null
+            };
+            state.epics.push(newEpic);
+            selectedEpicId = newEpic.id;
+            targetId = newEpic.id;
+            epicInput.value = "";
+        }
+
+        const epic = state.epics.find((e) => e.id === targetId);
+        if (!epic) return;
+
+        checked.forEach((cb) => {
+            epic.subtasks.push({
+                id: `sub_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                text: cb.value,
+                completed: false
+            });
+        });
+
+        epicHint.innerText = `Added ${checked.length} subtask${checked.length > 1 ? "s" : ""} to "${epic.title}".`;
+        touchState();
+        persistAndRender();
+        panel.remove();
+    });
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = "btn-ghost";
+    cancelBtn.textContent = "Cancel";
+    cancelBtn.addEventListener("click", () => panel.remove());
+
+    footer.appendChild(addBtn);
+    footer.appendChild(cancelBtn);
+    panel.appendChild(footer);
+
+    // Insert the panel right after the plan button's parent input-row
+    planEpicBtn.closest(".input-row").insertAdjacentElement("afterend", panel);
 }
 
 function addHallToken(epic) {
-    state.hallOfFame.push(generateAchievementToken(epic.title));
+    state.hallOfFame.push(generateAchievementToken(epic));
     touchState();
     persistAndRender();
 }
@@ -1602,18 +2311,155 @@ function addHallToken(epic) {
 function addHofManual() {
     const text = document.getElementById("hof-input").value.trim();
     if (!text) return;
-    state.hallOfFame.push(generateAchievementToken(text));
+    state.hallOfFame.push(generateManualToken(text));
     document.getElementById("hof-input").value = "";
     touchState();
     persistAndRender();
 }
 
-function generateAchievementToken(title) {
+function addHofAI() {
+    const btn = document.getElementById("hof-ai");
+    const token = generateAIToken();
+    state.hallOfFame.push(token);
+    touchState();
+    persistAndRender();
+    // Brief confirmation feedback on the button
+    const original = btn.textContent;
+    btn.textContent = "✓ Token minted!";
+    btn.disabled = true;
+    setTimeout(() => {
+        btn.textContent = original;
+        btn.disabled = false;
+    }, 2000);
+}
+
+function generateAIToken() {
+    const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+    const level       = state.profile.level      ?? 1;
+    const streak      = state.profile.streakDays ?? 0;
+    const xp          = state.profile.xp         ?? 0;
+    const completions = state.stats.totalCompletions ?? 0;
+    const focusSessions = (state.focus && Array.isArray(state.focus.sessions))
+        ? state.focus.sessions.length : 0;
+    const completedEpics = state.epics.filter((e) => e.completedAt).length;
+
+    // Find highest-level skill
+    const skillEntries = Object.entries(state.skills || {});
+    let topSkillName = null;
+    let topSkillLevel = 0;
+    for (const [name, sk] of skillEntries) {
+        if ((sk.level ?? 1) > topSkillLevel) {
+            topSkillLevel = sk.level ?? 1;
+            topSkillName  = name.charAt(0).toUpperCase() + name.slice(1);
+        }
+    }
+
+    // Determine rarity
+    let rarity = "Common";
+    if (streak >= 30 || completions >= 100) {
+        rarity = "Legendary";
+    } else if (level >= 10 || topSkillLevel >= 5) {
+        rarity = "Epic";
+    } else if (streak >= 14 || completions >= 50) {
+        rarity = "Rare";
+    }
+
+    // Pick the most impressive stat and build title + description
+    let title, description;
+
+    if (streak >= 30 || completions >= 100) {
+        // Legendary tier — pick whichever triggered it
+        if (streak >= 30) {
+            title       = pick(["Unbroken Chain", "Streak Sovereign", "The Persistent"]);
+            description = `Maintained a ${streak}-day streak. Discipline forged into identity.`;
+        } else {
+            title       = pick(["Mission Centurion", "The Executor", "Task Conqueror"]);
+            description = `Conquered ${completions} missions. Each one a brick in the foundation.`;
+        }
+    } else if (level >= 10) {
+        title       = pick(["Orbital Commander", "Star Navigator", "Void Walker"]);
+        description = `Reached Level ${level}, ascending beyond what most dare attempt.`;
+    } else if (topSkillLevel >= 5) {
+        const templates = [
+            `Master of ${topSkillName}`,
+            `${topSkillName} Adept`,
+            `The ${topSkillName} Architect`,
+        ];
+        title       = pick(templates);
+        description = `Leveled ${topSkillName} to ${topSkillLevel}. A specialist born from repetition.`;
+    } else if (streak >= 14) {
+        title       = pick(["Unbroken Chain", "Streak Sovereign", "The Persistent"]);
+        description = `Maintained a ${streak}-day streak. Discipline forged into identity.`;
+    } else if (completions >= 50) {
+        title       = pick(["Mission Centurion", "The Executor", "Task Conqueror"]);
+        description = `Conquered ${completions} missions. Each one a brick in the foundation.`;
+    } else if (focusSessions >= 10) {
+        title       = pick(["Flow State Initiate", "The Focused", "Deep Work Devotee"]);
+        description = `Survived ${focusSessions} focus sessions. The mind sharpened by fire.`;
+    } else {
+        title       = pick(["Trailblazer", "The Beginning", "First Light"]);
+        description = "Every legend starts somewhere. This is where yours began.";
+    }
+
+    return {
+        id: `token_ai_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        title,
+        description,
+        rarity,
+        earnedAt: new Date().toISOString(),
+    };
+}
+
+const HOF_DESCRIPTION_TEMPLATES = [
+    (title, n) => `After ${n} subtask${n !== 1 ? "s" : ""} conquered, ${title} stands complete.`,
+    (title)    => `The mission '${title}' has been vanquished.`,
+    (title, n) => `Epic victory: ${title} — ${n} challenge${n !== 1 ? "s" : ""} overcome.`,
+    (title)    => `Against all odds, '${title}' fell before you.`,
+    (title, n) => `${n} obstacle${n !== 1 ? "s" : ""} faced. ${n !== 1 ? "All" : "It"} defeated. Mission: ${title}.`,
+    (title)    => `The legend of '${title}' is now sealed in history.`,
+];
+
+function pickHofDescription(title, subtaskCount) {
+    const fn = HOF_DESCRIPTION_TEMPLATES[Math.floor(Math.random() * HOF_DESCRIPTION_TEMPLATES.length)];
+    return fn(title, subtaskCount);
+}
+
+function computeEpicRarity(epic) {
+    const total = epic.subtasks ? epic.subtasks.length : 0;
+    const completed = epic.subtasks ? epic.subtasks.filter((s) => s.completed).length : 0;
+    const allDone = total > 0 && completed === total;
+
+    if (allDone && epic.createdAt) {
+        const created = new Date(epic.createdAt);
+        const finished = epic.completedAt ? new Date(epic.completedAt) : new Date();
+        const days = (finished - created) / (1000 * 60 * 60 * 24);
+        if (days > 7) return "Legendary";
+    }
+    if (allDone) return "Epic";
+    if (completed > 0) return "Rare";
+    return "Common";
+}
+
+function generateAchievementToken(epic) {
+    const title = typeof epic === "string" ? epic : epic.title;
+    const subtaskCount = (epic && epic.subtasks) ? epic.subtasks.filter((s) => s.completed).length : 0;
+    const rarity = (epic && typeof epic === "object") ? computeEpicRarity(epic) : "Common";
     return {
         id: `token_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         title: `Mission Complete: ${title}`,
-        description: `You finished a major project: ${title}.`,
-        rarity: "Legendary",
+        description: pickHofDescription(title, subtaskCount),
+        rarity,
+        earnedAt: new Date().toISOString()
+    };
+}
+
+function generateManualToken(title) {
+    return {
+        id: `token_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        title,
+        description: pickHofDescription(title, 0),
+        rarity: "Common",
         earnedAt: new Date().toISOString()
     };
 }
@@ -1647,7 +2493,17 @@ function updateStreak(completedAtIso) {
         state.profile.streakDays = Math.max(1, state.profile.streakDays);
     } else {
         const yesterday = new Date(Date.now() - 86400000).toDateString();
-        state.profile.streakDays = last === yesterday ? state.profile.streakDays + 1 : 1;
+        if (last === yesterday) {
+            state.profile.streakDays = state.profile.streakDays + 1;
+        } else {
+            // Streak would break — check for shield
+            if (state.loot?.streakShield) {
+                state.loot.streakShield = false; // consume the shield
+                // Streak is maintained (don't reset it)
+            } else {
+                state.profile.streakDays = 1;
+            }
+        }
     }
     state.profile.lastCompletedDate = completedAtIso;
 }
@@ -1773,6 +2629,189 @@ async function resetPassword() {
         body: JSON.stringify({ email })
     });
     authMessage.innerText = res.ok ? "Reset email sent. Check your inbox." : "Reset request failed.";
+}
+
+// ─── Challenges ───────────────────────────────────────────────────────────────
+function addChallenge() {
+    const titleEl  = document.getElementById("challenge-title");
+    const typeEl   = document.getElementById("challenge-type");
+    const targetEl = document.getElementById("challenge-target");
+    const dlEl     = document.getElementById("challenge-deadline");
+
+    const title  = titleEl.value.trim();
+    const target = parseInt(targetEl.value, 10);
+    if (!title) { titleEl.focus(); return; }
+    if (!target || target < 1) { targetEl.focus(); return; }
+
+    const challenge = {
+        id:          `ch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        title,
+        type:        typeEl.value,
+        target,
+        deadline:    dlEl.value || null,
+        createdAt:   new Date().toISOString(),
+        completedAt: null,
+        claimed:     false,
+        xpReward:    calcChallengeXp(target),
+        // snapshot: XP at creation time, used to measure xp_earned delta
+        xpAtCreation: state.profile.xp + (state.profile.level - 1) * 100
+    };
+
+    if (!Array.isArray(state.challenges)) state.challenges = [];
+    state.challenges.push(challenge);
+    titleEl.value  = "";
+    targetEl.value = "";
+    dlEl.value     = "";
+    touchState();
+    persistAndRender();
+}
+
+function calcChallengeXp(target) {
+    // 50 XP for low targets, up to 150 XP for large ones
+    if (target >= 50) return 150;
+    if (target >= 20) return 100;
+    if (target >= 10) return 75;
+    return 50;
+}
+
+const CHALLENGE_TYPE_LABELS = {
+    tasks_completed:  "Tasks completed",
+    habits_completed: "Habits done today",
+    focus_sessions:   "Focus sessions",
+    xp_earned:        "XP earned"
+};
+
+function getChallengeProgress(challenge) {
+    const s = state;
+    const since = challenge.createdAt;
+
+    switch (challenge.type) {
+        case "tasks_completed": {
+            return s.tasks.filter(
+                t => t.status === "completed" && t.completedAt && t.completedAt >= since
+            ).length;
+        }
+        case "habits_completed": {
+            const today = new Date().toISOString().slice(0, 10);
+            let count = 0;
+            (s.habits || []).forEach(h => {
+                if (Array.isArray(h.completedDates) && h.completedDates.includes(today)) count++;
+            });
+            return count;
+        }
+        case "focus_sessions": {
+            return (s.focus && Array.isArray(s.focus.sessions))
+                ? s.focus.sessions.filter(
+                    sess => sess.type === "work" && sess.date && sess.date >= since
+                  ).length
+                : 0;
+        }
+        case "xp_earned": {
+            const currentTotal = s.profile.xp + (s.profile.level - 1) * 100;
+            return Math.max(0, currentTotal - (challenge.xpAtCreation || 0));
+        }
+        default:
+            return 0;
+    }
+}
+
+function checkChallenges() {
+    if (!Array.isArray(state.challenges)) return;
+    let changed = false;
+    state.challenges.forEach(ch => {
+        if (ch.completedAt || ch.claimed) return;
+        const progress = getChallengeProgress(ch);
+        if (progress >= ch.target) {
+            ch.completedAt = new Date().toISOString();
+            changed = true;
+        }
+    });
+    if (changed) touchState();
+}
+
+function claimChallenge(id) {
+    if (!Array.isArray(state.challenges)) return;
+    const ch = state.challenges.find(c => c.id === id);
+    if (!ch || ch.claimed || !ch.completedAt) return;
+    ch.claimed = true;
+    gainXP(ch.xpReward);
+    checkAchievements();
+    touchState();
+    persistAndRender();
+}
+
+function deleteChallenge(id) {
+    if (!Array.isArray(state.challenges)) return;
+    state.challenges = state.challenges.filter(c => c.id !== id);
+    touchState();
+    persistAndRender();
+}
+
+function renderChallenges() {
+    const listEl = document.getElementById("challenge-list");
+    if (!listEl) return;
+    listEl.innerHTML = "";
+
+    if (!Array.isArray(state.challenges) || state.challenges.length === 0) {
+        listEl.innerHTML = `<div class="hint-row">No challenges yet — create one above.</div>`;
+        return;
+    }
+
+    // Sort: active first, then claimed/completed
+    const sorted = [...state.challenges].sort((a, b) => {
+        if (a.claimed && !b.claimed) return 1;
+        if (!a.claimed && b.claimed) return -1;
+        return new Date(a.createdAt) - new Date(b.createdAt);
+    });
+
+    sorted.forEach(ch => {
+        const progress    = getChallengeProgress(ch);
+        const pct         = Math.min(100, Math.round((progress / ch.target) * 100));
+        const isComplete  = !!ch.completedAt;
+        const isClaimed   = !!ch.claimed;
+        const isExpired   = ch.deadline && !isComplete && new Date(ch.deadline + "T23:59:59") < new Date();
+        const typeLabel   = CHALLENGE_TYPE_LABELS[ch.type] || ch.type;
+
+        let deadlineHtml = "";
+        if (ch.deadline) {
+            const formatted = new Date(ch.deadline + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+            if (isExpired) {
+                deadlineHtml = `<span class="challenge-deadline expired">Expired · ${formatted}</span>`;
+            } else {
+                deadlineHtml = `<span class="challenge-deadline">Deadline: ${formatted}</span>`;
+            }
+        }
+
+        let actionHtml = "";
+        if (isClaimed) {
+            actionHtml = `<span class="challenge-claimed-badge">Claimed +${ch.xpReward} XP</span>`;
+        } else if (isComplete) {
+            actionHtml = `<button class="btn-primary challenge-claim-btn" data-id="${ch.id}">Claim +${ch.xpReward} XP</button>`;
+        }
+
+        const card = document.createElement("div");
+        card.className = `challenge-card${isClaimed ? " challenge-card--claimed" : ""}${isComplete && !isClaimed ? " challenge-card--complete" : ""}`;
+        card.innerHTML = `
+            <div class="challenge-card-header">
+                <span class="challenge-card-title">${ch.title}</span>
+                <button class="challenge-delete-btn" data-id="${ch.id}" title="Delete challenge">&times;</button>
+            </div>
+            <div class="challenge-meta">${typeLabel} &middot; Target: ${ch.target}${deadlineHtml ? " &middot; " : ""}${deadlineHtml}</div>
+            <div class="challenge-progress-bar">
+                <div class="challenge-progress-fill" style="width:${pct}%"></div>
+            </div>
+            <div class="challenge-progress-footer">
+                <span class="challenge-progress-text">${progress} / ${ch.target} (${pct}%)</span>
+                ${actionHtml}
+            </div>
+        `;
+
+        card.querySelector(".challenge-delete-btn").addEventListener("click", () => deleteChallenge(ch.id));
+        const claimBtn = card.querySelector(".challenge-claim-btn");
+        if (claimBtn) claimBtn.addEventListener("click", () => claimChallenge(ch.id));
+
+        listEl.appendChild(card);
+    });
 }
 
 // ─── Profile ──────────────────────────────────────────────────────────────────

@@ -38,12 +38,117 @@
 
   const QUEST_ICONS = ['⚔️', '🎯', '🔥', '🌟', '💪'];
 
-  const BOSS_NAMES = [
-    'The Procrastinator',
-    'The Overwhelm',
-    'The Distraction',
-    'The Perfectionist',
-    'The Burnout',
+  const BOSS_POOL = [
+    {
+      name: 'The Procrastination Hydra',
+      emoji: '🐉',
+      lore: 'Slayer of momentum, feeder of doubt. Each head you cut spawns another excuse.',
+    },
+    {
+      name: 'Entropy\'s Champion',
+      emoji: '🌑',
+      lore: 'It does not attack — it waits. Every day of inaction grants it power.',
+    },
+    {
+      name: 'The Distraction Demon',
+      emoji: '👾',
+      lore: 'Summoned from notifications and open tabs. It feeds on your scattered attention.',
+    },
+    {
+      name: 'The Perfectionist Specter',
+      emoji: '🕸️',
+      lore: 'Nothing is ever good enough for it. It traps the willing in webs of endless revision.',
+    },
+    {
+      name: 'Lord Burnout',
+      emoji: '🔥',
+      lore: 'The destroyer of streaks. It strikes hardest when you\'ve pushed the longest.',
+    },
+    {
+      name: 'The Overwhelm Colossus',
+      emoji: '🗿',
+      lore: 'One hundred tasks, no clear path. It grows larger the more you try to plan everything at once.',
+    },
+    {
+      name: 'The Doubt Wraith',
+      emoji: '👻',
+      lore: 'You can\'t see it, but you feel it. It whispers that your goals aren\'t worth the effort.',
+    },
+    {
+      name: 'Inertia Incarnate',
+      emoji: '⛓️',
+      lore: 'The hardest enemy to fight — the one that never moves, yet keeps you still.',
+    },
+    {
+      name: 'The Scope Creeper',
+      emoji: '🦑',
+      lore: 'What started as one task is now seven. Its tentacles reach into every corner of your list.',
+    },
+    {
+      name: 'The False Urgency Phantom',
+      emoji: '⏳',
+      lore: 'It makes the unimportant feel critical and the critical feel distant.',
+    },
+    {
+      name: 'Dread Marshal',
+      emoji: '💀',
+      lore: 'Commander of avoidance. It marshals your fears into an army that guards the hardest tasks.',
+    },
+    {
+      name: 'The Comparison Viper',
+      emoji: '🐍',
+      lore: 'It shows you only other people\'s highlights. A bite from this one poisons ambition.',
+    },
+    {
+      name: 'Lich of Lost Hours',
+      emoji: '🧟',
+      lore: 'It consumes the time you didn\'t think you were wasting. You only notice at day\'s end.',
+    },
+    {
+      name: 'The Chaos Hydra',
+      emoji: '🌊',
+      lore: 'Meetings, interruptions, context switches. It regrows its heads faster than you can fight.',
+    },
+    {
+      name: 'Ego\'s Shadow',
+      emoji: '🪞',
+      lore: 'It convinces you that planning is the same as doing. Progress feels real, but the work waits.',
+    },
+    {
+      name: 'The Midnight Saboteur',
+      emoji: '🌙',
+      lore: 'Strikes when your guard is down. Late nights, bad decisions, tomorrow\'s regret.',
+    },
+    {
+      name: 'The Comfort Zone Golem',
+      emoji: '🗡️',
+      lore: 'Built entirely from familiar routines. It is warm inside, but nothing grows there.',
+    },
+    {
+      name: 'Voidlord of Diversion',
+      emoji: '🕳️',
+      lore: 'Opens portals to entertainment just as the important work begins.',
+    },
+    {
+      name: 'The Anxiety Revenant',
+      emoji: '⚡',
+      lore: 'It returns every time you try to rest. The undying voice that asks: did you do enough?',
+    },
+    {
+      name: 'The Shallow Work Specter',
+      emoji: '📱',
+      lore: 'Keeps you busy but never deep. Every notification is one of its minions.',
+    },
+    {
+      name: 'Chronovore',
+      emoji: '🕰️',
+      lore: 'An ancient devourer. It eats hours whole and leaves only the memory of busyness.',
+    },
+    {
+      name: 'The Resistance',
+      emoji: '🧱',
+      lore: 'Formless and universal. It stands between you and every meaningful thing you could make.',
+    },
   ];
 
   const QUEST_TYPES = [
@@ -121,15 +226,20 @@
     const weekId = getWeekId();
 
     if (!state.boss || state.boss.weekId !== weekId) {
-      // Pick boss name deterministically-ish from week number
+      // Pick boss deterministically from week number
       const weekNum = parseInt(weekId.split('W')[1], 10);
-      const bossTitle = BOSS_NAMES[weekNum % BOSS_NAMES.length];
+      const bossEntry = BOSS_POOL[weekNum % BOSS_POOL.length];
+
+      // HP scales with week number: base 100 + min(weekNum * 5, 150), capped at 250
+      const maxHp = Math.min(100 + Math.min(weekNum * 5, 150), 250);
 
       state.boss = {
         weekId,
-        title: bossTitle,
-        hp: 100,
-        maxHp: 100,
+        title: bossEntry.name,
+        emoji: bossEntry.emoji,
+        lore: bossEntry.lore,
+        hp: maxHp,
+        maxHp,
         defeated: false,
         rewardClaimed: false,
       };
@@ -148,21 +258,21 @@
 
     switch (quest.type) {
       case 'complete_any': {
-        const count = tasks.filter(t => t.completed && t.completedDate === today).length;
+        const count = tasks.filter(t => t.status === 'completed' && t.completedAt && t.completedAt.slice(0, 10) === today).length;
         return Math.min(count, quest.target);
       }
 
       case 'complete_category': {
         const category = quest.meta && quest.meta.category;
         const done = tasks.some(
-          t => t.completed && t.completedDate === today && t.category === category
+          t => t.status === 'completed' && t.completedAt && t.completedAt.slice(0, 10) === today && t.category === category
         );
         return done ? 1 : 0;
       }
 
       case 'complete_hard': {
         const done = tasks.some(
-          t => t.completed && t.completedDate === today &&
+          t => t.status === 'completed' && t.completedAt && t.completedAt.slice(0, 10) === today &&
             (t.difficulty === 'Hard' || t.difficulty === 'hard')
         );
         return done ? 1 : 0;
@@ -230,6 +340,10 @@
     const hpPct = Math.round((boss.hp / boss.maxHp) * 100);
     const daysLeft = daysUntilMonday();
 
+    // Fall back gracefully for boss records saved before the lore fields existed
+    const bossEmoji = boss.emoji || '👹';
+    const bossLore = boss.lore || '';
+
     if (boss.defeated) {
       el.innerHTML = `
         <div class="section-card">
@@ -242,6 +356,7 @@
                 <div class="boss-subtitle">Boss defeated! New boss in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}.</div>
               </div>
             </div>
+            ${bossLore ? `<div class="boss-lore">${escHtml(bossLore)}</div>` : ''}
             ${!boss.rewardClaimed ? `
               <div class="hint-row">
                 <button class="btn-primary" data-action="claim-boss-reward">Claim 200 XP Reward</button>
@@ -256,12 +371,13 @@
           <div class="section-label">Weekly Boss</div>
           <div class="boss-card">
             <div class="boss-header">
-              <span class="boss-emoji">👹</span>
+              <span class="boss-emoji">${escHtml(bossEmoji)}</span>
               <div>
                 <div class="boss-title">${escHtml(boss.title)}</div>
-                <div class="boss-subtitle">Weekly Boss</div>
+                <div class="boss-subtitle">Weekly Boss &mdash; ${boss.maxHp} HP this week</div>
               </div>
             </div>
+            ${bossLore ? `<div class="boss-lore">${escHtml(bossLore)}</div>` : ''}
             <div class="boss-hp-bar">
               <div class="boss-hp-fill" style="width:${hpPct}%"></div>
             </div>
