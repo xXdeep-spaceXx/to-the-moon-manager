@@ -1,0 +1,13 @@
+{
+  "name": "To the Moon",
+  "short_name": "To the Moon",
+  "description": "Turn your life into a mission map.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080810",
+  "theme_color": "#080810",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

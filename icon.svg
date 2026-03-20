@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="96" fill="#080810"/>
+  <!-- Crescent moon -->
+  <path d="M320 160 C320 248 248 320 160 320 C148 320 136 318 125 315 C155 375 219 415 293 415 C393 415 474 334 474 234 C474 160 429 97 365 68 C347 107 320 131 320 160 Z"
+        fill="#c8a8f0" opacity="0.95"/>
+  <!-- Star accent -->
+  <circle cx="380" cy="150" r="8" fill="#ffffff" opacity="0.8"/>
+  <circle cx="150" cy="170" r="5" fill="#ffffff" opacity="0.5"/>
+  <circle cx="420" cy="280" r="4" fill="#ffffff" opacity="0.6"/>
+</svg>

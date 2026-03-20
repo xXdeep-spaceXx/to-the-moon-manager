@@ -9,6 +9,8 @@ const categorySelect = document.getElementById("task-category");
 const difficultySelect = document.getElementById("task-difficulty");
 const prioritySelect = document.getElementById("task-priority");
 const taskDueInput = document.getElementById("task-due");
+const taskRecurSelect = document.getElementById("task-recur");
+const taskEstimateInput = document.getElementById("task-estimate");
 const recommendationsEl = document.getElementById("recommendations");
 const statsEl = document.getElementById("stats");
 const authEmail = document.getElementById("auth-email");
@@ -41,6 +43,39 @@ const saveProfileBtn = document.getElementById("save-profile");
 const profilePreview = document.getElementById("profile-preview");
 const similarUsersEl = document.getElementById("similar-users");
 
+// ─── Theme ────────────────────────────────────────────────────────────────────
+const THEME_KEY = 'moonTheme';
+const VALID_THEMES = ['default', 'solar', 'nebula', 'arctic', 'forest'];
+
+function applyTheme(theme) {
+    if (!VALID_THEMES.includes(theme)) theme = 'default';
+    if (theme === 'default') {
+        document.documentElement.removeAttribute('data-theme');
+    } else {
+        document.documentElement.setAttribute('data-theme', theme);
+    }
+    localStorage.setItem(THEME_KEY, theme);
+    // Sync active swatch highlight
+    document.querySelectorAll('.theme-swatch').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.theme === theme);
+    });
+}
+
+function initThemeSwitcher() {
+    const switcher = document.getElementById('theme-switcher');
+    if (!switcher) return;
+    switcher.addEventListener('click', e => {
+        const swatch = e.target.closest('.theme-swatch');
+        if (!swatch) return;
+        applyTheme(swatch.dataset.theme);
+    });
+    // Reflect saved theme onto swatches on load
+    const saved = localStorage.getItem(THEME_KEY) || 'default';
+    document.querySelectorAll('.theme-swatch').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.theme === saved);
+    });
+}
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 const config = {
     storage: {
@@ -58,8 +93,8 @@ const STATE_VERSION = 4;
 
 const defaultState = {
     version: STATE_VERSION,
-    meta: { lastModified: null, lastSync: null, conflict: false },
-    profile: { xp: 0, level: 1, xpPerTask: 20, streakDays: 0, lastCompletedDate: null },
+    meta: { lastModified: null, lastSync: null, conflict: false, lastWeeklyReport: null, lastLoginReward: null },
+    profile: { xp: 0, level: 1, xpPerTask: 20, streakDays: 0, lastCompletedDate: null, class: null, prestige: 0, prestigeMultiplier: 1.0 },
     stats: { completionsByCategory: {}, completionsByDifficulty: {}, avgCompletionMs: 0, totalCompletions: 0 },
     tasks: [],
     epics: [],
@@ -71,7 +106,7 @@ const defaultState = {
     focus: { sessions: [] },
     quests: { date: null, list: [] },
     boss: { weekId: null, title: "", hp: 0, maxHp: 100, defeated: false, rewardClaimed: false },
-    loot: { inventory: [], activeBoost: null, streakShield: false, focusBonus: 0 },
+    loot: { inventory: [], activeBoost: null, streakShield: false, focusBonus: 0, equipped: { weapon: null, armor: null, accessory: null, shipModule: null } },
     mood: [],
     skills: {
         health:   { xp: 0, level: 1 },
@@ -80,7 +115,9 @@ const defaultState = {
         finance:  { xp: 0, level: 1 },
         life:     { xp: 0, level: 1 }
     },
-    challenges: []
+    challenges: [],
+    taskTemplates: [],
+    crew: []
 };
 
 const achievementCatalog = [
@@ -315,6 +352,8 @@ const PAGE_ACCENTS = {
     skills:       [191, 90,  242],
     loot:         [255, 159, 10],
     mood:         [255, 55,  95],
+    stats:        [124, 58,  237],
+    calendar:     [34,  197, 94],
 };
 
 let _currentPage = 'dashboard';
@@ -390,6 +429,12 @@ function showPage(name) {
     const navItem = document.querySelector(`.nav-item[data-page="${name}"]`);
     if (navItem) navItem.classList.add("active");
     if (name === "roadmap") startRoadmapLoop();
+    if (name === "stats" && window.APP && window.APP.renderStats) {
+        setTimeout(function () { window.APP.renderStats(); }, 0);
+    }
+    if (name === "calendar" && window.APP && window.APP.renderCalendar) {
+        setTimeout(function () { window.APP.renderCalendar(); }, 0);
+    }
 
     // Update ambient accent color
     const [r, g, b] = PAGE_ACCENTS[name] || [10, 132, 255];
@@ -414,11 +459,655 @@ function showAuthScreen() {
     document.getElementById("app-shell").classList.add("hidden");
 }
 
+// ─── Weekly Report ────────────────────────────────────────────────────────────
+function getThisMonday() {
+    const d = new Date();
+    const day = d.getDay() || 7; // 1=Mon … 7=Sun
+    d.setDate(d.getDate() - (day - 1));
+    return d.toISOString().slice(0, 10);
+}
+
+function getLastWeekRange() {
+    const thisMonday = new Date(getThisMonday());
+    const lastMonday = new Date(thisMonday);
+    lastMonday.setDate(lastMonday.getDate() - 7);
+    const lastSunday = new Date(thisMonday);
+    lastSunday.setDate(lastSunday.getDate() - 1);
+    lastSunday.setHours(23, 59, 59, 999);
+    return { start: lastMonday, end: lastSunday };
+}
+
+function checkWeeklyReport() {
+    const thisMonday = getThisMonday();
+
+    // Already shown this week
+    if (state.meta.lastWeeklyReport === thisMonday) return;
+
+    const { start, end } = getLastWeekRange();
+
+    // Ensure there is any data before this week (user has been active for at least 1 week)
+    const allCompleted = (state.tasks || []).filter(t => t.status === "completed" && t.completedAt);
+    const hasOldData = allCompleted.some(t => new Date(t.completedAt) < start);
+    const lastWeekTasks = allCompleted.filter(t => {
+        const d = new Date(t.completedAt);
+        return d >= start && d <= end;
+    });
+
+    // Only show the modal if there was activity last week OR user has old data (has been around 1+ week)
+    if (lastWeekTasks.length === 0 && !hasOldData) return;
+    if (lastWeekTasks.length === 0) return; // no last-week data → skip silently
+
+    // XP earned last week
+    const xpEarned = lastWeekTasks.reduce((sum, t) => sum + (t.xpValue || 0), 0);
+
+    // Best day
+    const dayCounts = {};
+    const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    lastWeekTasks.forEach(t => {
+        const day = DAY_NAMES[new Date(t.completedAt).getDay()];
+        dayCounts[day] = (dayCounts[day] || 0) + 1;
+    });
+    let bestDay = "—", bestDayCount = 0;
+    Object.entries(dayCounts).forEach(([day, count]) => {
+        if (count > bestDayCount) { bestDayCount = count; bestDay = day; }
+    });
+
+    // Habits maintained every day of last week
+    let habitsMaintained = 0;
+    const weekDates = [];
+    for (let i = 0; i < 7; i++) {
+        const d = new Date(start);
+        d.setDate(d.getDate() + i);
+        weekDates.push(d.toISOString().slice(0, 10));
+    }
+    (state.habits || []).forEach(h => {
+        if (!Array.isArray(h.completedDates)) return;
+        const allDone = weekDates.every(date => h.completedDates.includes(date));
+        if (allDone) habitsMaintained++;
+    });
+
+    // Focus sessions last week
+    const focusSessions = (state.focus && Array.isArray(state.focus.sessions))
+        ? state.focus.sessions.filter(s => {
+            const d = new Date(s.date);
+            return d >= start && d <= end;
+        }).length
+        : 0;
+
+    // Boss defeated last week — check weekId against last week's ISO week
+    const lastMondayDate = new Date(start);
+    const lastMondayDay = lastMondayDate.getDay() || 7;
+    const tmp = new Date(lastMondayDate);
+    tmp.setDate(tmp.getDate() + 4 - lastMondayDay);
+    const lastWeekYear = tmp.getFullYear();
+    const lastWeekNum = Math.ceil((((tmp - new Date(lastWeekYear, 0, 1)) / 86400000) + 1) / 7);
+    const lastWeekId = `${lastWeekYear}-W${String(lastWeekNum).padStart(2, '0')}`;
+    const bossDefeated = !!(state.boss && state.boss.weekId === lastWeekId && state.boss.defeated);
+
+    // Motivational line
+    let motivation;
+    const score = lastWeekTasks.length + focusSessions + habitsMaintained * 2;
+    if (score >= 20)      motivation = "Legendary week. You're unstoppable — keep pushing toward the Moon.";
+    else if (score >= 12) motivation = "Solid performance, Commander. Momentum is everything.";
+    else if (score >= 6)  motivation = "Good progress. Every mission completed moves the ship forward.";
+    else                  motivation = "Small steps count. Launch again this week — you've got this.";
+
+    // Build modal content
+    const modal = document.getElementById("weekly-report-modal");
+    if (!modal) return;
+
+    modal.querySelector(".wr-stat-val[data-stat='missions']").textContent = lastWeekTasks.length;
+    modal.querySelector(".wr-stat-val[data-stat='xp']").textContent = `+${xpEarned} XP`;
+    modal.querySelector(".wr-stat-val[data-stat='bestday']").textContent = bestDayCount > 0 ? `${bestDay} (${bestDayCount})` : "—";
+    modal.querySelector(".wr-stat-val[data-stat='habits']").textContent = habitsMaintained + " / " + (state.habits || []).length;
+    modal.querySelector(".wr-stat-val[data-stat='focus']").textContent = focusSessions;
+    modal.querySelector(".wr-stat-val[data-stat='boss']").textContent = bossDefeated ? "Defeated ✓" : "Escaped";
+    modal.querySelector(".wr-boss-val").classList.toggle("wr-boss-defeated", bossDefeated);
+    modal.querySelector(".wr-motivation").textContent = motivation;
+
+    modal.classList.remove("hidden");
+    requestAnimationFrame(() => modal.classList.add("wr-visible"));
+
+    // Mark shown and persist
+    state.meta.lastWeeklyReport = thisMonday;
+    storage.save(state);
+}
+
+// ─── Daily Login Reward ───────────────────────────────────────────────────────
+const DAILY_REWARD_LOOT_TABLE = [
+    { name: "Star Fragment",   emoji: "⭐",  rarity: "common",    desc: "A small piece of cosmic energy." },
+    { name: "Focus Crystal",   emoji: "💎",  rarity: "common",    desc: "Sharpens your concentration." },
+    { name: "Speed Boots",     emoji: "👟",  rarity: "common",    desc: "You move a little faster today." },
+    { name: "Energy Drink",    emoji: "⚡",  rarity: "common",    desc: "+10% productivity for the hour." },
+    { name: "Map Fragment",    emoji: "🗺️", rarity: "common",    desc: "Part of a larger picture." },
+    { name: "Nebula Core",     emoji: "🌌",  rarity: "rare",      desc: "Dense with stored potential." },
+    { name: "Time Shard",      emoji: "⏳",  rarity: "rare",      desc: "A sliver of reclaimed time." },
+    { name: "Moon Dust",       emoji: "🌙",  rarity: "rare",      desc: "Collected from the lunar surface." },
+    { name: "Warp Drive",      emoji: "🚀",  rarity: "rare",      desc: "Doubles your next mission's XP." },
+    { name: "Cosmic Key",      emoji: "🗝️", rarity: "legendary", desc: "Opens doors that were never there." },
+    { name: "Phoenix Feather", emoji: "🔥",  rarity: "legendary", desc: "Rise from any setback." },
+    { name: "Galaxy Orb",      emoji: "🔮",  rarity: "legendary", desc: "You can see every possible outcome." },
+    { name: "Cosmic Shield",   emoji: "🛡️", rarity: "rare",      desc: "An impenetrable barrier of star-stuff." },
+];
+
+// ─── Seasonal Events ──────────────────────────────────────────────────────────
+const SEASONAL_EVENTS = [
+    {
+        name: "New Year Sprint",
+        emoji: "🎆",
+        description: "Ring in the new year with double the gains!",
+        start: "01-01",
+        end: "01-07",
+        type: "xp2x",
+        bonusText: "Double XP on all missions"
+    },
+    {
+        name: "Valentine's Push",
+        emoji: "💝",
+        description: "Show your goals some love.",
+        start: "02-14",
+        end: "02-16",
+        type: "xp1_5x",
+        bonusText: "+50% XP on all missions"
+    },
+    {
+        name: "Spring Surge",
+        emoji: "🌸",
+        description: "New season, new loot. Drop rates are up!",
+        start: "03-20",
+        end: "03-31",
+        type: "loot_boost",
+        bonusText: "+20% loot drop rate"
+    },
+    {
+        name: "Summer Grind",
+        emoji: "☀️",
+        description: "The sun never sets on your grind.",
+        start: "06-21",
+        end: "07-04",
+        type: "xp2x",
+        bonusText: "Double XP on all missions"
+    },
+    {
+        name: "Back to Focus",
+        emoji: "📚",
+        description: "Season of knowledge. Learning tasks reward double.",
+        start: "09-01",
+        end: "09-15",
+        type: "learning_boost",
+        bonusText: "Double XP on Learning missions"
+    },
+    {
+        name: "Spooky Sprint",
+        emoji: "🎃",
+        description: "A fearsome boss lurks. Complete missions for +20% XP!",
+        start: "10-01",
+        end: "10-31",
+        type: "halloween",
+        bonusText: "+20% XP + special boss event"
+    },
+    {
+        name: "Year-End Blitz",
+        emoji: "🎄",
+        description: "Finish the year strong. Double XP and bonus loot await!",
+        start: "12-15",
+        end: "12-31",
+        type: "xmas",
+        bonusText: "Double XP + guaranteed loot drops"
+    },
+];
+
+function getActiveEvent() {
+    const now = new Date();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day   = String(now.getDate()).padStart(2, '0');
+    const today = `${month}-${day}`;
+
+    for (const event of SEASONAL_EVENTS) {
+        const { start, end } = event;
+        // Handle events that wrap across year boundary (none currently, but safe)
+        if (start <= end) {
+            if (today >= start && today <= end) return event;
+        } else {
+            if (today >= start || today <= end) return event;
+        }
+    }
+    return null;
+}
+
+function showDailyRewardToast(lines) {
+    const existing = document.querySelector('.daily-reward-toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.className = 'daily-reward-toast';
+    toast.innerHTML = `
+        <div class="daily-reward-icon">🌅</div>
+        <div class="daily-reward-body">
+            <div class="daily-reward-title">Daily Reward!</div>
+            ${lines.map(l => `<div class="daily-reward-line">${l}</div>`).join('')}
+        </div>
+    `;
+    document.body.appendChild(toast);
+
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => toast.classList.add('daily-reward-toast--visible'));
+    });
+
+    setTimeout(() => {
+        toast.classList.remove('daily-reward-toast--visible');
+        toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+        setTimeout(() => { if (toast.parentNode) toast.remove(); }, 600);
+    }, 3000);
+}
+
+// ─── Character Classes ────────────────────────────────────────────────────────
+const CLASS_DEFINITIONS = {
+    warrior: {
+        id: 'warrior',
+        name: 'Warrior',
+        emoji: '⚔️',
+        bonus: '+50% XP on Hard difficulty tasks',
+        color: '#e05252',
+        glow: 'rgba(224, 82, 82, 0.35)',
+    },
+    mage: {
+        id: 'mage',
+        name: 'Mage',
+        emoji: '🔮',
+        bonus: 'Double XP from Learning & Work tasks',
+        color: '#9b6fff',
+        glow: 'rgba(155, 111, 255, 0.35)',
+    },
+    rogue: {
+        id: 'rogue',
+        name: 'Rogue',
+        emoji: '🗡️',
+        bonus: '+10% XP per 7-day streak block (max +50%)',
+        color: '#4ecdc4',
+        glow: 'rgba(78, 205, 196, 0.35)',
+    },
+    explorer: {
+        id: 'explorer',
+        name: 'Explorer',
+        emoji: '🧭',
+        bonus: '+20% loot drop rate · +15% XP on all tasks',
+        color: '#f4a742',
+        glow: 'rgba(244, 167, 66, 0.35)',
+    },
+};
+
+// ─── Crew Roster ──────────────────────────────────────────────────────────────
+const CREW_ROSTER = [
+    {
+        id: 'kai',
+        name: 'Kai',
+        role: 'Navigator',
+        emoji: '👨‍✈️',
+        unlockLevel: 3,
+        quote: "I've charted a course to your first milestone. The stars are watching.",
+        quip: "Kai: Stay on course — every mission logged is a star charted.",
+    },
+    {
+        id: 'luna',
+        name: 'Luna',
+        role: 'Engineer',
+        emoji: '🧑‍🔬',
+        unlockLevel: 6,
+        quote: "Systems online. Your momentum is creating real structural changes.",
+        quip: "Luna: The engine runs on consistency. Keep fueling it.",
+    },
+    {
+        id: 'rex',
+        name: 'Rex',
+        role: 'AI Tactical',
+        emoji: '🤖',
+        unlockLevel: 9,
+        quote: "Pattern analysis complete. You are outperforming 73% of known mission profiles.",
+        quip: "Rex: Data confirms it — your output this week is above baseline.",
+    },
+    {
+        id: 'zara',
+        name: 'Zara',
+        role: 'Strategist',
+        emoji: '🧙‍♀️',
+        unlockLevel: 12,
+        quote: "The resistance was real. You broke through it anyway. That's rare.",
+        quip: "Zara: Rare minds push when momentum stalls. You did.",
+    },
+    {
+        id: 'nova',
+        name: 'Nova',
+        role: 'Commander',
+        emoji: '🌟',
+        unlockLevel: 15,
+        quote: "Few reach this altitude. You've earned your rank, Commander.",
+        quip: "Nova: Command is earned, not given. Lead on.",
+    },
+];
+
+function showCrewUnlockModal(member) {
+    const existingId = 'crew-unlock-modal';
+    if (document.getElementById(existingId)) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = existingId;
+    overlay.className = 'crew-modal-overlay';
+
+    overlay.innerHTML = `
+        <div class="crew-modal">
+            <div class="crew-modal-eyebrow">New Crew Member!</div>
+            <div class="crew-modal-portrait">${member.emoji}</div>
+            <div class="crew-modal-name">${member.name}</div>
+            <div class="crew-modal-role">${member.role}</div>
+            <div class="crew-modal-quote"><em>"${member.quote}"</em></div>
+            <button class="crew-modal-dismiss">Welcome aboard!</button>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => overlay.classList.add('crew-modal-overlay--visible'));
+    });
+
+    overlay.querySelector('.crew-modal-dismiss').addEventListener('click', () => {
+        overlay.classList.remove('crew-modal-overlay--visible');
+        overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
+        setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 600);
+    });
+}
+
+function renderCrewSection() {
+    const container = document.getElementById('crew-section');
+    if (!container) return;
+
+    const unlockedIds = Array.isArray(state.crew) ? state.crew : [];
+    if (unlockedIds.length === 0) {
+        container.classList.add('hidden');
+        return;
+    }
+
+    container.classList.remove('hidden');
+    const row = container.querySelector('.crew-avatar-row');
+    if (!row) return;
+
+    row.innerHTML = CREW_ROSTER
+        .filter(m => unlockedIds.includes(m.id))
+        .map(m => `
+            <div class="crew-avatar" data-tip="${m.name} · ${m.role}">
+                <span class="crew-avatar-emoji">${m.emoji}</span>
+                <div class="crew-avatar-tooltip">${m.name}<br><span>${m.role}</span></div>
+            </div>
+        `).join('');
+}
+
+function checkCrewUnlocks(previousLevel, newLevel) {
+    if (!Array.isArray(state.crew)) state.crew = [];
+    const triggered = CREW_ROSTER.filter(m =>
+        m.unlockLevel > previousLevel &&
+        m.unlockLevel <= newLevel &&
+        !state.crew.includes(m.id)
+    );
+    triggered.forEach(m => {
+        state.crew.push(m.id);
+    });
+    if (triggered.length > 0) {
+        // Show modal for the highest-level member unlocked (show sequentially if multiple)
+        triggered.forEach((m, i) => {
+            setTimeout(() => showCrewUnlockModal(m), i * 700 + 400);
+        });
+    }
+}
+
+function showClassSelectionModal() {
+    if (document.getElementById('class-select-modal')) return; // already open
+    if (state.profile.class !== null) return; // already chosen
+
+    const overlay = document.createElement('div');
+    overlay.id = 'class-select-modal';
+    overlay.className = 'class-modal-overlay';
+
+    overlay.innerHTML = `
+        <div class="class-modal">
+            <div class="class-modal-header">
+                <div class="class-modal-title">Choose Your Class</div>
+                <div class="class-modal-subtitle">You have reached Level 5. Your destiny awaits — choose wisely, this cannot be changed.</div>
+            </div>
+            <div class="class-modal-cards">
+                ${Object.values(CLASS_DEFINITIONS).map(c => `
+                    <button class="class-card" data-class="${c.id}" style="--class-color:${c.color};--class-glow:${c.glow}">
+                        <div class="class-card-emoji">${c.emoji}</div>
+                        <div class="class-card-name">${c.name}</div>
+                        <div class="class-card-bonus">${c.bonus}</div>
+                    </button>
+                `).join('')}
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    // Animate in
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => overlay.classList.add('class-modal-overlay--visible'));
+    });
+
+    overlay.querySelectorAll('.class-card').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const chosen = btn.dataset.class;
+            state.profile.class = chosen;
+            touchState();
+            persistAndRender();
+
+            // Dismiss
+            overlay.classList.remove('class-modal-overlay--visible');
+            overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
+            setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 600);
+
+            // Confirmation toast
+            const info = CLASS_DEFINITIONS[chosen];
+            showDailyRewardToast([`You are now a ${info.emoji} ${info.name}!`, info.bonus]);
+        });
+    });
+}
+
+function showPrestigeModal() {
+    if (document.getElementById('prestige-modal')) return;
+    if (state.profile.level < 20) return;
+
+    const nextPrestige = (state.profile.prestige ?? 0) + 1;
+    const ordinals = ['I','II','III','IV','V','VI','VII','VIII','IX','X'];
+    const tierLabel = ordinals[nextPrestige - 1] || `${nextPrestige}`;
+    const newMultiplier = (1.0 + nextPrestige * 0.10).toFixed(1);
+
+    const overlay = document.createElement('div');
+    overlay.id = 'prestige-modal';
+    overlay.className = 'prestige-modal-overlay';
+
+    overlay.innerHTML = `
+        <div class="prestige-modal">
+            <div class="prestige-modal-header">
+                <div class="prestige-modal-icon">⭐</div>
+                <div class="prestige-modal-title">Prestige ${tierLabel}</div>
+                <div class="prestige-modal-subtitle">
+                    You have reached Level 20 and unlocked the power to Prestige.<br>
+                    Reset to Level 1 in exchange for a <strong>permanent +10% XP bonus</strong> and a Prestige Star.
+                </div>
+            </div>
+            <div class="prestige-modal-details">
+                <div class="prestige-detail-row">
+                    <span class="prestige-detail-label">New XP Multiplier</span>
+                    <span class="prestige-detail-val">${newMultiplier}×</span>
+                </div>
+                <div class="prestige-detail-row">
+                    <span class="prestige-detail-label">Hall of Fame Token</span>
+                    <span class="prestige-detail-val prestige-legendary">Prestige ${tierLabel} · Legendary</span>
+                </div>
+                <div class="prestige-detail-row prestige-warning-row">
+                    <span class="prestige-detail-label">Level &amp; XP</span>
+                    <span class="prestige-detail-val prestige-reset-val">Reset to 1 / 0</span>
+                </div>
+            </div>
+            <div class="prestige-modal-note">Tasks, habits, and all other data are kept.</div>
+            <div class="prestige-modal-actions">
+                <button class="btn-secondary" id="prestige-cancel-btn">Cancel</button>
+                <button class="prestige-confirm-btn" id="prestige-confirm-btn">⭐ Prestige Now</button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => overlay.classList.add('prestige-modal-overlay--visible'));
+    });
+
+    const close = () => {
+        overlay.classList.remove('prestige-modal-overlay--visible');
+        overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
+        setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 600);
+    };
+
+    document.getElementById('prestige-cancel-btn').addEventListener('click', close);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+    document.getElementById('prestige-confirm-btn').addEventListener('click', () => {
+        close();
+        doPrestige();
+    });
+}
+
+function doPrestige() {
+    const ordinals = ['I','II','III','IV','V','VI','VII','VIII','IX','X'];
+    state.profile.prestige = (state.profile.prestige ?? 0) + 1;
+    state.profile.prestigeMultiplier = parseFloat((1.0 + state.profile.prestige * 0.10).toFixed(2));
+
+    // Reset level and XP only
+    state.profile.level = 1;
+    state.profile.xp = 0;
+
+    // Add Legendary HOF token
+    const tierLabel = ordinals[state.profile.prestige - 1] || `${state.profile.prestige}`;
+    const token = {
+        id: `token_prestige_${state.profile.prestige}_${Date.now()}`,
+        title: `Prestige ${tierLabel}`,
+        description: `Transcended mortality and reset to Level 1, carrying ${state.profile.prestigeMultiplier}× XP power forward.`,
+        rarity: 'Legendary',
+        earnedAt: new Date().toISOString()
+    };
+    state.hallOfFame.push(token);
+
+    touchState();
+    persistAndRender();
+
+    showDailyRewardToast([
+        `⭐ Prestige ${tierLabel} achieved!`,
+        `XP multiplier is now ${state.profile.prestigeMultiplier}×`
+    ]);
+}
+
+function showClassBonusToast(emoji, className, bonusXp) {
+    if (bonusXp <= 0) return;
+    const existing = document.querySelector('.class-bonus-toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.className = 'class-bonus-toast';
+    toast.textContent = `${emoji} ${className} bonus: +${bonusXp} XP`;
+    document.body.appendChild(toast);
+
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => toast.classList.add('class-bonus-toast--visible'));
+    });
+
+    setTimeout(() => {
+        toast.classList.remove('class-bonus-toast--visible');
+        toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+        setTimeout(() => { if (toast.parentNode) toast.remove(); }, 500);
+    }, 2500);
+}
+
+function checkDailyLoginReward() {
+    const today = new Date().toISOString().slice(0, 10);
+    if (state.meta.lastLoginReward === today) return;
+
+    const roll = Math.random();
+    const lines = [];
+
+    // 10% chance: bonus XP + loot drop
+    // 20% chance: loot drop only
+    // 70% chance: small XP
+    if (roll < 0.10) {
+        // Bonus XP + loot
+        gainXP(50);
+        lines.push('+50 XP');
+        const template = DAILY_REWARD_LOOT_TABLE[Math.floor(Math.random() * DAILY_REWARD_LOOT_TABLE.length)];
+        if (template && state.loot && Array.isArray(state.loot.inventory)) {
+            const item = {
+                id: 'loot_daily_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+                name: template.name,
+                emoji: template.emoji,
+                rarity: template.rarity,
+                desc: template.desc,
+                earnedAt: new Date().toISOString(),
+            };
+            state.loot.inventory.push(item);
+            lines.push(`Loot Drop: ${template.emoji} ${template.name}!`);
+        }
+    } else if (roll < 0.30) {
+        // Loot drop only
+        const template = DAILY_REWARD_LOOT_TABLE[Math.floor(Math.random() * DAILY_REWARD_LOOT_TABLE.length)];
+        if (template && state.loot && Array.isArray(state.loot.inventory)) {
+            const item = {
+                id: 'loot_daily_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+                name: template.name,
+                emoji: template.emoji,
+                rarity: template.rarity,
+                desc: template.desc,
+                earnedAt: new Date().toISOString(),
+            };
+            state.loot.inventory.push(item);
+            lines.push(`Loot Drop: ${template.emoji} ${template.name}!`);
+        }
+    } else {
+        // Small XP (10–25)
+        const xp = Math.floor(Math.random() * 16) + 10;
+        gainXP(xp);
+        lines.push(`+${xp} XP`);
+    }
+
+    state.meta.lastLoginReward = today;
+    touchState();
+    persistAndRender();
+
+    if (lines.length > 0) {
+        showDailyRewardToast(lines);
+    }
+}
+
 function showAppShell() {
     document.getElementById("screen-auth").classList.add("hidden");
     document.getElementById("app-shell").classList.remove("hidden");
     showPage("dashboard");
     setTimeout(() => { positionOrb("dashboard", false); initOrb(); }, 50);
+    setTimeout(() => checkWeeklyReport(), 1200);
+    setTimeout(() => checkDailyLoginReward(), 2000);
+    setTimeout(() => {
+        if (state.profile.level >= 5 && state.profile.class === null) {
+            showClassSelectionModal();
+        }
+    }, 3200);
+    // Ask for notification permission once, non-intrusively, after 5s
+    setTimeout(() => requestStreakNotificationPermission(), 5000);
+    // Check streak warning on load
+    checkStreakWarning();
+    // Re-check when user returns to the tab
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') checkStreakWarning();
+    });
+    // Re-check every 30 minutes
+    setInterval(() => checkStreakWarning(), 30 * 60 * 1000);
     window.addEventListener('resize', () => positionOrb(_currentPage || 'dashboard', false));
 }
 
@@ -439,8 +1128,48 @@ document.querySelectorAll(".nav-item[data-page]").forEach((item) => {
 });
 
 // ─── Event Listeners ──────────────────────────────────────────────────────────
+
+// Template panel toggle
+const templateToggleBtn = document.getElementById("template-toggle-btn");
+const templatePanel     = document.getElementById("template-panel");
+if (templateToggleBtn && templatePanel) {
+    templateToggleBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const open = templatePanel.classList.toggle("hidden");
+        if (!open) renderTemplatePanel();
+    });
+    document.addEventListener("click", (e) => {
+        if (!templatePanel.classList.contains("hidden") &&
+            !templatePanel.contains(e.target) &&
+            e.target !== templateToggleBtn) {
+            templatePanel.classList.add("hidden");
+        }
+    });
+}
+
+// Save as template
+const saveTemplateBtn = document.getElementById("save-template-btn");
+if (saveTemplateBtn) saveTemplateBtn.addEventListener("click", saveAsTemplate);
+
 addBtn.addEventListener("click", addTask);
 taskInput.addEventListener("keypress", (e) => { if (e.key === "Enter") addTask(); });
+
+// Estimate quick-pick buttons
+document.querySelectorAll(".estimate-quick-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+        const mins = btn.dataset.mins;
+        if (taskEstimateInput) {
+            taskEstimateInput.value = mins;
+            document.querySelectorAll(".estimate-quick-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+        }
+    });
+});
+if (taskEstimateInput) {
+    taskEstimateInput.addEventListener("input", () => {
+        document.querySelectorAll(".estimate-quick-btn").forEach(b => b.classList.remove("active"));
+    });
+}
 
 // Task filter listeners
 document.getElementById('filter-search').addEventListener('input', (e) => {
@@ -463,6 +1192,12 @@ document.getElementById('filter-clear').addEventListener('click', () => {
     document.getElementById('filter-category').value = 'all';
     document.getElementById('filter-status').value = 'active';
     renderTasks();
+});
+// Weekly report dismiss
+document.getElementById("wr-dismiss-btn").addEventListener("click", () => {
+    const modal = document.getElementById("weekly-report-modal");
+    modal.classList.remove("wr-visible");
+    modal.addEventListener("transitionend", () => modal.classList.add("hidden"), { once: true });
 });
 signupBtn.addEventListener("click", signup);
 loginBtn.addEventListener("click", login);
@@ -557,16 +1292,23 @@ function normalizeState(loaded) {
     const meta = loaded.meta || {};
     // Normalize loot — preserve inventory plus new effect-state fields
     const loadedLoot = loaded.loot || {};
+    const loadedEquipped = (loadedLoot.equipped && typeof loadedLoot.equipped === 'object') ? loadedLoot.equipped : {};
     const loot = {
         inventory:   Array.isArray(loadedLoot.inventory) ? loadedLoot.inventory : [],
         activeBoost:  loadedLoot.activeBoost  ?? null,
         streakShield: loadedLoot.streakShield ?? false,
         focusBonus:   loadedLoot.focusBonus   ?? 0,
+        equipped: {
+            weapon:     loadedEquipped.weapon     ?? null,
+            armor:      loadedEquipped.armor      ?? null,
+            accessory:  loadedEquipped.accessory  ?? null,
+            shipModule: loadedEquipped.shipModule ?? null,
+        },
     };
     return {
         version: STATE_VERSION,
-        meta: { lastModified: meta.lastModified ?? null, lastSync: meta.lastSync ?? null, conflict: meta.conflict ?? false },
-        profile: { xp: profile.xp ?? 0, level: profile.level ?? 1, xpPerTask: profile.xpPerTask ?? 20, streakDays: profile.streakDays ?? 0, lastCompletedDate: profile.lastCompletedDate ?? null },
+        meta: { lastModified: meta.lastModified ?? null, lastSync: meta.lastSync ?? null, conflict: meta.conflict ?? false, lastWeeklyReport: meta.lastWeeklyReport ?? null, lastLoginReward: meta.lastLoginReward ?? null },
+        profile: { xp: profile.xp ?? 0, level: profile.level ?? 1, xpPerTask: profile.xpPerTask ?? 20, streakDays: profile.streakDays ?? 0, lastCompletedDate: profile.lastCompletedDate ?? null, class: profile.class ?? null, prestige: profile.prestige ?? 0, prestigeMultiplier: profile.prestigeMultiplier ?? 1.0 },
         stats: { completionsByCategory: stats.completionsByCategory || {}, completionsByDifficulty: stats.completionsByDifficulty || {}, avgCompletionMs: stats.avgCompletionMs ?? 0, totalCompletions: stats.totalCompletions ?? 0 },
         tasks: Array.isArray(loaded.tasks) ? loaded.tasks : [],
         epics: Array.isArray(loaded.epics) ? loaded.epics : [],
@@ -587,14 +1329,132 @@ function normalizeState(loaded) {
             finance:  { xp: 0, level: 1 },
             life:     { xp: 0, level: 1 }
         },
-        challenges: Array.isArray(loaded.challenges) ? loaded.challenges : []
+        challenges: Array.isArray(loaded.challenges) ? loaded.challenges : [],
+        taskTemplates: Array.isArray(loaded.taskTemplates) ? loaded.taskTemplates : [],
+        crew: Array.isArray(loaded.crew) ? loaded.crew : []
     };
+}
+
+// ─── Task Templates ───────────────────────────────────────────────────────────
+const BUILTIN_TEMPLATES = [
+    { id: "tpl_morning",    name: "Morning Routine",     text: "Morning Routine",     category: "life",     difficulty: "easy",   priority: "normal", estimateMins: 30  },
+    { id: "tpl_deepwork",   name: "Deep Work Session",   text: "Deep Work Session",   category: "work",     difficulty: "hard",   priority: "high",   estimateMins: 120 },
+    { id: "tpl_wklyreview", name: "Weekly Review",       text: "Weekly Review",       category: "work",     difficulty: "medium", priority: "normal", estimateMins: 60  },
+    { id: "tpl_exercise",   name: "Exercise",            text: "Exercise",            category: "health",   difficulty: "medium", priority: "normal", estimateMins: 45  },
+    { id: "tpl_read",       name: "Read for 30 mins",    text: "Read for 30 mins",    category: "learning", difficulty: "easy",   priority: "low",    estimateMins: 30  },
+    { id: "tpl_budget",     name: "Budget Check",        text: "Budget Check",        category: "finance",  difficulty: "easy",   priority: "normal", estimateMins: 20  },
+];
+
+function applyTemplate(tpl) {
+    taskInput.value           = tpl.text;
+    categorySelect.value      = tpl.category;
+    difficultySelect.value    = tpl.difficulty;
+    prioritySelect.value      = tpl.priority;
+    if (taskEstimateInput) {
+        taskEstimateInput.value = tpl.estimateMins || "";
+        document.querySelectorAll(".estimate-quick-btn").forEach(b => {
+            b.classList.toggle("active", parseInt(b.dataset.mins, 10) === tpl.estimateMins);
+        });
+    }
+    // close panel
+    const panel = document.getElementById("template-panel");
+    if (panel) panel.classList.add("hidden");
+    taskInput.focus();
+}
+
+function saveAsTemplate() {
+    const name = (prompt("Template name:") || "").trim();
+    if (!name) return;
+    const rawEstimate = taskEstimateInput ? parseInt(taskEstimateInput.value, 10) : NaN;
+    const tpl = {
+        id: `utpl_${Date.now()}`,
+        name,
+        text:         taskInput.value.trim() || name,
+        category:     categorySelect.value,
+        difficulty:   difficultySelect.value,
+        priority:     prioritySelect.value,
+        estimateMins: (!isNaN(rawEstimate) && rawEstimate > 0) ? rawEstimate : null
+    };
+    if (!Array.isArray(state.taskTemplates)) state.taskTemplates = [];
+    state.taskTemplates.push(tpl);
+    touchState();
+    persistAndRender();
+    renderTemplatePanel();
+}
+
+function deleteUserTemplate(id) {
+    if (!Array.isArray(state.taskTemplates)) return;
+    state.taskTemplates = state.taskTemplates.filter(t => t.id !== id);
+    touchState();
+    persistAndRender();
+    renderTemplatePanel();
+}
+
+function renderTemplatePanel() {
+    const panel = document.getElementById("template-panel");
+    if (!panel) return;
+    const list = panel.querySelector(".template-list");
+    if (!list) return;
+    list.innerHTML = "";
+
+    const userTemplates = Array.isArray(state.taskTemplates) ? state.taskTemplates : [];
+    const allTemplates = [...BUILTIN_TEMPLATES, ...userTemplates];
+
+    if (allTemplates.length === 0) {
+        list.innerHTML = '<p class="template-empty">No templates yet.</p>';
+        return;
+    }
+
+    if (BUILTIN_TEMPLATES.length) {
+        const label = document.createElement("div");
+        label.className = "template-group-label";
+        label.textContent = "Built-in";
+        list.appendChild(label);
+        BUILTIN_TEMPLATES.forEach(tpl => {
+            list.appendChild(buildTemplateRow(tpl, false));
+        });
+    }
+
+    if (userTemplates.length) {
+        const label = document.createElement("div");
+        label.className = "template-group-label";
+        label.textContent = "Saved";
+        list.appendChild(label);
+        userTemplates.forEach(tpl => {
+            list.appendChild(buildTemplateRow(tpl, true));
+        });
+    }
+}
+
+function buildTemplateRow(tpl, deletable) {
+    const row = document.createElement("div");
+    row.className = "template-row";
+
+    const info = document.createElement("button");
+    info.className = "template-apply-btn";
+    const mins = tpl.estimateMins;
+    const timeStr = mins ? (mins >= 60 ? `${mins / 60}h` : `${mins}m`) : "";
+    info.innerHTML = `<span class="template-name">${tpl.name}</span><span class="template-meta">${tpl.category} · ${tpl.difficulty} · ${tpl.priority}${timeStr ? " · " + timeStr : ""}</span>`;
+    info.addEventListener("click", () => applyTemplate(tpl));
+    row.appendChild(info);
+
+    if (deletable) {
+        const del = document.createElement("button");
+        del.className = "template-delete-btn";
+        del.title = "Delete template";
+        del.textContent = "×";
+        del.addEventListener("click", (e) => { e.stopPropagation(); deleteUserTemplate(tpl.id); });
+        row.appendChild(del);
+    }
+
+    return row;
 }
 
 // ─── Render ───────────────────────────────────────────────────────────────────
 function render() {
     renderTasks();
     renderHud();
+    renderEventBanner();
     renderInsights();
     renderConflictBanner();
     renderAchievements();
@@ -603,6 +1463,7 @@ function render() {
     renderProfilePreview();
     renderSimilarUsers();
     renderChallenges();
+    renderCrewSection();
     // Feature module renders
     window.APP.renderHooks.forEach(fn => { try { fn(); } catch(e) { console.warn("render hook error", e); } });
 }
@@ -613,6 +1474,15 @@ function getDueDateStatus(dueDate) {
     if (dueDate < today) return "overdue";
     if (dueDate === today) return "today";
     return "future";
+}
+
+function formatEstimate(mins) {
+    if (!mins || mins <= 0) return '';
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h > 0 && m > 0) return `${h}h ${m}m`;
+    if (h > 0) return `${h}h`;
+    return `${m}m`;
 }
 
 function renderDueDateLabel(dueDate) {
@@ -683,23 +1553,147 @@ function renderTasks() {
         const li = document.createElement("li");
         li.dataset.taskId = task.id;
         const isDone = task.status === 'completed';
+
+        // Subtask progress helpers (only for active tasks with subtasks)
+        const subs = (!isDone && task.subtasks && task.subtasks.length > 0) ? task.subtasks : [];
+        const subDone = subs.filter(s => s.done).length;
+        const subTotal = subs.length;
+        const allSubsDone = subTotal > 0 && subDone === subTotal;
+        const progressBadge = subTotal > 0
+            ? `<span class="task-sub-progress${allSubsDone ? ' task-sub-progress--all' : ''}">${subDone}/${subTotal}</span>`
+            : '';
+
         li.innerHTML = `
-            <div class="task-content">
-                <span class="task-text"${isDone ? ' style="opacity:0.5;text-decoration:line-through"' : ''}>${task.text}</span>
-                <span class="task-meta">${task.category} · ${task.difficulty} · ${task.priority}</span>
-                ${renderDueDateLabel(task.dueDate)}
+            <div class="task-main-row">
+                <div class="task-content">
+                    ${!isDone && subTotal > 0 ? `<button class="task-expand-btn" title="Toggle subtasks">▶</button>` : ''}
+                    <div class="task-text-block">
+                        <span class="task-text"${isDone ? ' style="opacity:0.5;text-decoration:line-through"' : ''}>${task.text}</span>
+                        <span class="task-meta">${task.category} · ${task.difficulty} · ${task.priority}${subTotal > 0 ? ' · ' : ''}${progressBadge}</span>
+                        ${task.recur && task.recur !== 'none' ? `<span class="task-recur-badge">↻ ${task.recur.charAt(0).toUpperCase() + task.recur.slice(1)}</span>` : ''}
+                        ${task.estimateMins ? `<span class="task-estimate-badge">⏱ ${formatEstimate(task.estimateMins)}</span>` : ''}
+                        ${renderDueDateLabel(task.dueDate)}
+                    </div>
+                </div>
+                <div class="task-actions">
+                    ${isDone ? '' : '<button class="edit-btn" title="Edit task">✎</button>'}
+                    ${isDone ? '' : `<button class="delete-btn${allSubsDone ? ' delete-btn--glow' : ''}" title="Mark complete">✓</button>`}
+                </div>
             </div>
-            <div class="task-actions">
-                ${isDone ? '' : '<button class="edit-btn" title="Edit task">✎</button>'}
-                ${isDone ? '' : '<button class="delete-btn" title="Mark complete">✓</button>'}
-            </div>
+            ${!isDone ? `<div class="task-subtasks hidden"></div>` : ''}
         `;
+
         if (!isDone) {
-            li.querySelector(".delete-btn").addEventListener("click", () => completeTask(task.id));
+            const deleteBtn = li.querySelector(".delete-btn");
+            deleteBtn.addEventListener("click", () => completeTask(task.id));
             li.querySelector(".edit-btn").addEventListener("click", () => startInlineEdit(task, li));
+
+            // Expand/collapse toggle
+            const expandBtn = li.querySelector(".task-expand-btn");
+            const subtasksPanel = li.querySelector(".task-subtasks");
+            if (expandBtn && subtasksPanel) {
+                expandBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    const isOpen = !subtasksPanel.classList.contains("hidden");
+                    if (isOpen) {
+                        subtasksPanel.classList.add("hidden");
+                        expandBtn.textContent = "▶";
+                    } else {
+                        renderSubtasksPanel(task, subtasksPanel, deleteBtn);
+                        subtasksPanel.classList.remove("hidden");
+                        expandBtn.textContent = "▼";
+                    }
+                });
+            }
+
+            // Also add a "no subtasks yet" expand via a dedicated add-subtask inline button
+            // Always render the subtasks panel stub with the add row even if subTotal === 0
+            // We render it lazily on expand; but we need an expand toggle even when no subs exist
+            if (!expandBtn) {
+                // No subtasks yet — inject a lightweight expand toggle into the task-content
+                // so user can click it to open the add-subtask row
+                const contentEl = li.querySelector(".task-content");
+                const toggleBtn = document.createElement("button");
+                toggleBtn.className = "task-expand-btn task-expand-btn--empty";
+                toggleBtn.title = "Add subtasks";
+                toggleBtn.textContent = "▶";
+                contentEl.insertBefore(toggleBtn, contentEl.firstChild);
+                if (subtasksPanel) {
+                    toggleBtn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        const isOpen = !subtasksPanel.classList.contains("hidden");
+                        if (isOpen) {
+                            subtasksPanel.classList.add("hidden");
+                            toggleBtn.textContent = "▶";
+                        } else {
+                            renderSubtasksPanel(task, subtasksPanel, deleteBtn);
+                            subtasksPanel.classList.remove("hidden");
+                            toggleBtn.textContent = "▼";
+                        }
+                    });
+                }
+            }
         }
         taskList.appendChild(li);
     });
+}
+
+function renderSubtasksPanel(task, panel, completeBtn) {
+    if (!task.subtasks) task.subtasks = [];
+    panel.innerHTML = "";
+
+    // Render existing subtask items
+    task.subtasks.forEach((sub) => {
+        const row = document.createElement("div");
+        row.className = "task-subtask-item";
+        row.innerHTML = `
+            <input type="checkbox" class="task-subtask-checkbox" ${sub.done ? 'checked' : ''}>
+            <span class="task-subtask-text${sub.done ? ' task-subtask-text--done' : ''}">${sub.text}</span>
+        `;
+        const cb = row.querySelector(".task-subtask-checkbox");
+        cb.addEventListener("change", () => {
+            sub.done = cb.checked;
+            touchState();
+            persistAndRender();
+        });
+        panel.appendChild(row);
+    });
+
+    // Add-subtask row
+    const addRow = document.createElement("div");
+    addRow.className = "task-subtask-add";
+    addRow.innerHTML = `
+        <input type="text" class="task-subtask-input" placeholder="New subtask…" maxlength="200">
+        <button class="task-subtask-add-btn" title="Add subtask">+</button>
+    `;
+    const subInput = addRow.querySelector(".task-subtask-input");
+    const addBtn = addRow.querySelector(".task-subtask-add-btn");
+
+    function addSubtask() {
+        const text = subInput.value.trim();
+        if (!text) return;
+        if (!task.subtasks) task.subtasks = [];
+        task.subtasks.push({
+            id: `tsub_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            text,
+            done: false
+        });
+        touchState();
+        persistAndRender();
+    }
+
+    addBtn.addEventListener("click", addSubtask);
+    subInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") addSubtask();
+    });
+
+    panel.appendChild(addRow);
+
+    // Update complete button glow state
+    if (completeBtn) {
+        const allDone = task.subtasks.length > 0 && task.subtasks.every(s => s.done);
+        completeBtn.classList.toggle("delete-btn--glow", allDone);
+    }
 }
 
 function startInlineEdit(task, li) {
@@ -1650,6 +2644,97 @@ function renderShip(level) {
     frame();
 }
 
+// ─── Productivity Score ────────────────────────────────────────────────────────
+function computeProductivityScore(s, referenceDate) {
+    // referenceDate: Date object for "today" (defaults to now); used so we can
+    // compute last-week's score by shifting the reference back 7 days.
+    const now = referenceDate || new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+
+    // Derive the Monday of the week containing `now`
+    function getMondayOf(d) {
+        const day = d.getDay() || 7; // 1=Mon … 7=Sun
+        const m = new Date(d);
+        m.setDate(m.getDate() - (day - 1));
+        m.setHours(0, 0, 0, 0);
+        return m;
+    }
+
+    const weekStart = getMondayOf(now);
+    const weekEnd   = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    weekEnd.setHours(23, 59, 59, 999);
+
+    // ── Streak (20%) ──────────────────────────────────────────────────────────
+    const streakDays = s.profile ? (s.profile.streakDays || 0) : 0;
+    const streakScore = Math.min(streakDays / 14, 1) * 100;
+
+    // ── Task completion rate this week (30%) ──────────────────────────────────
+    const tasks = Array.isArray(s.tasks) ? s.tasks : [];
+    const tasksCreatedThisWeek = tasks.filter(t => {
+        if (!t.createdAt) return false;
+        const d = new Date(t.createdAt);
+        return d >= weekStart && d <= weekEnd;
+    });
+    const tasksCompletedThisWeek = tasks.filter(t => {
+        if (t.status !== "completed" || !t.completedAt) return false;
+        const d = new Date(t.completedAt);
+        return d >= weekStart && d <= weekEnd;
+    });
+    const taskScore = (tasksCompletedThisWeek.length / Math.max(tasksCreatedThisWeek.length, 1)) * 100;
+
+    // ── Habit rate today (20%) ────────────────────────────────────────────────
+    const habits = Array.isArray(s.habits) ? s.habits : [];
+    const habitsCompletedToday = habits.filter(h =>
+        Array.isArray(h.completedDates) && h.completedDates.includes(todayStr)
+    ).length;
+    const habitScore = (habitsCompletedToday / Math.max(habits.length, 1)) * 100;
+
+    // ── Focus sessions this week (15%) ────────────────────────────────────────
+    const sessions = (s.focus && Array.isArray(s.focus.sessions)) ? s.focus.sessions : [];
+    const focusThisWeek = sessions.filter(sess => {
+        if (!sess.date) return false;
+        const d = new Date(sess.date);
+        return d >= weekStart && d <= weekEnd;
+    }).length;
+    const focusScore = Math.min(focusThisWeek / 5, 1) * 100;
+
+    // ── Mood average this week (15%) ──────────────────────────────────────────
+    const moodEntries = Array.isArray(s.mood) ? s.mood : [];
+    const moodThisWeek = moodEntries.filter(e => {
+        if (!e.date) return false;
+        return e.date >= weekStart.toISOString().slice(0, 10) && e.date <= weekEnd.toISOString().slice(0, 10);
+    });
+    const moodScore = moodThisWeek.length > 0
+        ? (moodThisWeek.reduce((sum, e) => sum + (e.energy || 0), 0) / moodThisWeek.length) / 5 * 100
+        : 50;
+
+    // ── Weighted blend ────────────────────────────────────────────────────────
+    const score = Math.round(
+        streakScore * 0.20 +
+        taskScore   * 0.30 +
+        habitScore  * 0.20 +
+        focusScore  * 0.15 +
+        moodScore   * 0.15
+    );
+
+    return {
+        score: Math.min(100, Math.max(0, score)),
+        breakdown: { streakScore, taskScore, habitScore, focusScore, moodScore }
+    };
+}
+
+function getProductivityTrend(s) {
+    const thisWeek = computeProductivityScore(s);
+    // Compute last week: shift reference date back 7 days
+    const lastWeekRef = new Date();
+    lastWeekRef.setDate(lastWeekRef.getDate() - 7);
+    const lastWeek = computeProductivityScore(s, lastWeekRef);
+    const delta = thisWeek.score - lastWeek.score;
+    const trend = delta > 3 ? 'up' : delta < -3 ? 'down' : 'same';
+    return { score: thisWeek.score, trend, breakdown: thisWeek.breakdown };
+}
+
 function renderHud() {
     levelText.innerText = state.profile.level;
     const xpPct = Math.min(100, Math.max(0, state.profile.xp));
@@ -1661,7 +2746,51 @@ function renderHud() {
     if (el("total-completions")) el("total-completions").textContent = state.stats.totalCompletions;
     if (el("active-tasks-count")) el("active-tasks-count").textContent = state.tasks.filter((t) => t.status === "active").length;
 
+    // Productivity Score
+    const psEl = el("productivity-score");
+    if (psEl) {
+        const { score, trend } = getProductivityTrend(state);
+        const numEl   = psEl.querySelector(".productivity-score-number");
+        const trendEl = psEl.querySelector(".productivity-score-trend");
+        if (numEl) numEl.textContent = score;
+        if (trendEl) {
+            const arrows = { up: '↑', down: '↓', same: '→' };
+            trendEl.textContent = arrows[trend] || '→';
+            trendEl.dataset.trend = trend;
+        }
+    }
+
     renderShip(state.profile.level);
+
+    // Class badge
+    const classBadgeEl = document.getElementById('class-badge');
+    if (classBadgeEl) {
+        const classInfo = CLASS_DEFINITIONS[state.profile.class];
+        if (classInfo) {
+            classBadgeEl.textContent = `${classInfo.emoji} ${classInfo.name}`;
+            classBadgeEl.classList.remove('hidden');
+        } else {
+            classBadgeEl.classList.add('hidden');
+        }
+    }
+
+    // Prestige stars
+    const prestigeStarsEl = el('prestige-stars');
+    if (prestigeStarsEl) {
+        const count = state.profile.prestige ?? 0;
+        if (count > 0) {
+            prestigeStarsEl.textContent = '⭐'.repeat(Math.min(count, 10)) + (count > 10 ? ` ×${count}` : '');
+            prestigeStarsEl.classList.remove('hidden');
+        } else {
+            prestigeStarsEl.classList.add('hidden');
+        }
+    }
+
+    // Prestige button visibility
+    const prestigeBtn = el('prestige-btn');
+    if (prestigeBtn) {
+        prestigeBtn.classList.toggle('hidden', state.profile.level < 20);
+    }
 }
 
 // ─── Mood Insights ────────────────────────────────────────────────────────────
@@ -1784,11 +2913,20 @@ function computeInsights(s) {
         const completedTasks = allTasks.filter(t => t.status === "completed" && t.completedAt);
         const completedToday = completedTasks.some(t => t.completedAt.slice(0, 10) === today);
         if (!completedToday) {
-            insights.push({
-                type: "warning",
-                emoji: "⚠️",
-                message: `Your ${streak}-day streak is at risk — complete a task today!`
-            });
+            const currentHour = new Date().getHours();
+            if (currentHour >= 18) {
+                insights.push({
+                    type: "warning",
+                    emoji: "⚠️",
+                    message: `Your ${streak}-day streak ends at midnight — complete a mission now to keep it alive!`
+                });
+            } else {
+                insights.push({
+                    type: "warning",
+                    emoji: "⚠️",
+                    message: `Your ${streak}-day streak is at risk — complete a task today!`
+                });
+            }
         }
     }
 
@@ -1893,7 +3031,32 @@ function computeInsights(s) {
         insights.push({ type: "info", emoji: "🧠", message: moodLines[0] });
     }
 
-    return insights.slice(0, 5);
+    // ── Crew quips ────────────────────────────────────────────────────────────
+    const crewUnlocked = Array.isArray(s.crew) ? s.crew : [];
+    if (crewUnlocked.length > 0) {
+        // Pick a crew member quip based on day-of-week rotation
+        const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
+        const unlockedMembers = CREW_ROSTER.filter(m => crewUnlocked.includes(m.id));
+        const member = unlockedMembers[dayOfYear % unlockedMembers.length];
+        insights.push({ type: "crew", emoji: member.emoji, message: member.quip });
+    }
+
+    return insights.slice(0, 6);
+}
+
+function renderEventBanner() {
+    const banner = document.getElementById('event-banner');
+    if (!banner) return;
+    const event = getActiveEvent();
+    if (event) {
+        banner.querySelector('.event-banner-emoji').textContent  = event.emoji;
+        banner.querySelector('.event-banner-name').textContent   = event.name;
+        banner.querySelector('.event-banner-desc').textContent   = event.description;
+        banner.querySelector('.event-banner-bonus').textContent  = event.bonusText;
+        banner.classList.remove('hidden');
+    } else {
+        banner.classList.add('hidden');
+    }
 }
 
 function renderInsights() {
@@ -1907,6 +3070,41 @@ function renderInsights() {
             <span class="insight-card-text">${insight.message}</span>
         </div>
     `).join("");
+}
+
+// ─── Streak Notification Permission ──────────────────────────────────────────
+function requestStreakNotificationPermission() {
+    if (!('Notification' in window)) return;
+    if (Notification.permission !== 'default') return;
+    if (localStorage.getItem('moonNotifAsked')) return;
+    localStorage.setItem('moonNotifAsked', '1');
+    Notification.requestPermission();
+}
+
+// ─── Streak Warning Notification ──────────────────────────────────────────────
+function checkStreakWarning() {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const streakDays = state.profile ? (state.profile.streakDays || 0) : 0;
+    if (streakDays === 0) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const currentHour = new Date().getHours();
+    if (currentHour < 18) return;
+
+    const notifKey = `moonStreakNotifSent-${today}`;
+    if (localStorage.getItem(notifKey)) return;
+
+    const allTasks = Array.isArray(state.tasks) ? state.tasks : [];
+    const completedToday = allTasks.some(
+        t => t.status === 'completed' && t.completedAt && t.completedAt.slice(0, 10) === today
+    );
+    if (completedToday) return;
+
+    localStorage.setItem(notifKey, '1');
+    new Notification('⚠️ Streak at Risk!', {
+        body: `Your ${streakDays}-day streak ends at midnight. Complete a mission to keep it alive!`,
+        icon: '/icon.svg'
+    });
 }
 
 function renderConflictBanner() {
@@ -2026,6 +3224,7 @@ function summarizeState(snapshot) {
 function addTask() {
     const text = taskInput.value.trim();
     if (!text) return;
+    const rawEstimate = taskEstimateInput ? parseInt(taskEstimateInput.value, 10) : NaN;
     const task = {
         id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         text,
@@ -2036,13 +3235,30 @@ function addTask() {
         createdAt: new Date().toISOString(),
         completedAt: null,
         xpValue: calcTaskXp(difficultySelect.value, prioritySelect.value),
-        dueDate: taskDueInput.value || null
+        dueDate: taskDueInput.value || null,
+        recur: taskRecurSelect ? taskRecurSelect.value : 'none',
+        estimateMins: (!isNaN(rawEstimate) && rawEstimate > 0) ? rawEstimate : null
     };
     state.tasks.push(task);
     taskInput.value = "";
     taskDueInput.value = "";
+    if (taskRecurSelect) taskRecurSelect.value = 'none';
+    if (taskEstimateInput) {
+        taskEstimateInput.value = "";
+        document.querySelectorAll(".estimate-quick-btn").forEach(b => b.classList.remove("active"));
+    }
     touchState();
     persistAndRender();
+}
+
+// ─── Equipment Bonuses (delegates to loot module once loaded) ─────────────────
+function getEquipmentBonuses() {
+    // loot.js registers window.APP.getEquipmentBonuses after it loads.
+    // Provide a safe fallback for the case where it hasn't loaded yet.
+    if (typeof window.APP.getEquipmentBonuses === 'function') {
+        return window.APP.getEquipmentBonuses(state);
+    }
+    return { xpBonus: 1.0, lootRate: 0.15, streakShield: false, focusBonus: 0 };
 }
 
 function completeTask(taskId) {
@@ -2053,16 +3269,128 @@ function completeTask(taskId) {
     updateStats(task);
     updateStreak(task.completedAt);
 
-    // Apply XP boost if one is active
-    let xpAmount = task.xpValue;
+    // Apply equipment passive XP bonus
+    const equipBonuses = getEquipmentBonuses();
+    let xpAmount = Math.round(task.xpValue * equipBonuses.xpBonus);
+
+    // Apply consumable XP boost if one is active (stacks on top of equipment bonus)
     if (state.loot?.activeBoost?.type === 'xp2x') {
         xpAmount = xpAmount * 2;
         state.loot.activeBoost = null; // consume after one task
     }
+
+    // ── Seasonal event bonuses ────────────────────────────────────────────────
+    const activeEvent = getActiveEvent();
+    let seasonalLootGuaranteed = false;
+    let seasonalLootBoostRate  = 0;
+    if (activeEvent) {
+        switch (activeEvent.type) {
+            case 'xp2x':
+                xpAmount = xpAmount * 2;
+                break;
+            case 'xp1_5x':
+                xpAmount = Math.round(xpAmount * 1.5);
+                break;
+            case 'loot_boost':
+                seasonalLootBoostRate = 0.60; // will override base drop chance
+                break;
+            case 'learning_boost':
+                if (task.category === 'learning') xpAmount = xpAmount * 2;
+                break;
+            case 'halloween':
+                xpAmount = Math.round(xpAmount * 1.2);
+                break;
+            case 'xmas':
+                xpAmount = xpAmount * 2;
+                seasonalLootGuaranteed = true;
+                break;
+        }
+    }
+
+    // ── Class bonuses ────────────────────────────────────────────────────────
+    const playerClass = state.profile.class;
+    let classBonus = 0;
+    if (playerClass === 'warrior' && task.difficulty === 'hard') {
+        classBonus = Math.round(xpAmount * 0.5);
+        showClassBonusToast('⚔️', 'Warrior', classBonus);
+    } else if (playerClass === 'mage' && (task.category === 'learning' || task.category === 'work')) {
+        classBonus = xpAmount; // double XP = +100%
+        showClassBonusToast('🔮', 'Mage', classBonus);
+    } else if (playerClass === 'rogue') {
+        const streakBlocks = Math.min(5, Math.floor(state.profile.streakDays / 7)); // max 5 blocks = +50%
+        if (streakBlocks > 0) {
+            classBonus = Math.round(xpAmount * streakBlocks * 0.1);
+            showClassBonusToast('🗡️', 'Rogue', classBonus);
+        }
+    } else if (playerClass === 'explorer') {
+        classBonus = Math.round(xpAmount * 0.15);
+        showClassBonusToast('🧭', 'Explorer', classBonus);
+        // +20% loot drop chance (stacks on top of equipment loot rate)
+        const baseDrop = equipBonuses.lootRate;
+        const explorerDrop = baseDrop + 0.20;
+        if (Math.random() < explorerDrop && state.loot && Array.isArray(state.loot.inventory)) {
+            const template = DAILY_REWARD_LOOT_TABLE[Math.floor(Math.random() * DAILY_REWARD_LOOT_TABLE.length)];
+            if (template) {
+                state.loot.inventory.push({
+                    id: 'loot_drop_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+                    name: template.name,
+                    emoji: template.emoji,
+                    rarity: template.rarity,
+                    desc: template.desc,
+                    earnedAt: new Date().toISOString(),
+                });
+            }
+        }
+    }
+    xpAmount += classBonus;
+
     gainXP(xpAmount);
+
+    // ── Seasonal loot drops ───────────────────────────────────────────────────
+    if (state.loot && Array.isArray(state.loot.inventory)) {
+        let dropChance = equipBonuses.lootRate; // base drop chance (equipment-aware)
+        if (seasonalLootBoostRate > 0) dropChance = seasonalLootBoostRate;
+        if (seasonalLootGuaranteed || Math.random() < dropChance) {
+            const template = DAILY_REWARD_LOOT_TABLE[Math.floor(Math.random() * DAILY_REWARD_LOOT_TABLE.length)];
+            if (template) {
+                state.loot.inventory.push({
+                    id: 'loot_seasonal_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+                    name: template.name,
+                    emoji: template.emoji,
+                    rarity: template.rarity,
+                    desc: template.desc,
+                    earnedAt: new Date().toISOString(),
+                });
+            }
+        }
+    }
 
     checkAchievements();
     checkChallenges();
+
+    // Recurrence: spawn a new task with an updated due date
+    if (task.recur && task.recur !== 'none') {
+        const offsets = { daily: 1, weekly: 7, monthly: 30 };
+        const daysAhead = offsets[task.recur] || 0;
+        const nextDate = new Date();
+        nextDate.setDate(nextDate.getDate() + daysAhead);
+        const nextDue = nextDate.toISOString().slice(0, 10);
+        const spawned = {
+            id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            text: task.text,
+            category: task.category,
+            difficulty: task.difficulty,
+            priority: task.priority,
+            recur: task.recur,
+            status: 'active',
+            createdAt: new Date().toISOString(),
+            completedAt: null,
+            xpValue: task.xpValue,
+            dueDate: nextDue
+        };
+        state.tasks.push(spawned);
+    }
+
     touchState();
     persistAndRender();
     // Fire task-complete hooks for feature modules
@@ -2509,10 +3837,28 @@ function updateStreak(completedAtIso) {
 }
 
 function gainXP(amount) {
-    state.profile.xp += amount;
+    const multiplier = state.profile.prestigeMultiplier ?? 1.0;
+    const scaled = amount > 0 ? Math.round(amount * multiplier) : amount;
+    const prevLevel = state.profile.level;
+    state.profile.xp += scaled;
     while (state.profile.xp >= 100) {
         state.profile.xp -= 100;
         state.profile.level += 1;
+    }
+    // Clamp XP to 0 (no level-down on negative habits)
+    if (state.profile.xp < 0) state.profile.xp = 0;
+    // Trigger class selection if newly eligible
+    if (state.profile.level >= 5 && state.profile.class === null) {
+        setTimeout(showClassSelectionModal, 400);
+    }
+    // Trigger crew unlocks for any levels crossed
+    if (state.profile.level > prevLevel) {
+        checkCrewUnlocks(prevLevel, state.profile.level);
+    }
+    // Trigger prestige button visibility update
+    const prestigeBtn = document.getElementById('prestige-btn');
+    if (prestigeBtn) {
+        prestigeBtn.classList.toggle('hidden', state.profile.level < 20);
     }
 }
 
@@ -3185,6 +4531,7 @@ function cap(str, max) {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
     initGalaxy();
+    initThemeSwitcher();
 
     try {
         const loaded = await storage.load();

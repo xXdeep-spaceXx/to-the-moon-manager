@@ -7,7 +7,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=11">
+    <link rel="stylesheet" href="style.css?v=15">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#080810">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <!-- Apply saved theme immediately to avoid flash -->
+    <script>(function(){var t=localStorage.getItem('moonTheme');if(t&&t!=='default')document.documentElement.setAttribute('data-theme',t);}());</script>
 </head>
 <body>
     <canvas id="galaxy-canvas"></canvas>
@@ -87,6 +92,10 @@
                     <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
                 </button>
 
+                <button class="nav-item" data-page="stats" data-tooltip="Stats">
+                    <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+                </button>
+
                 <div class="nav-divider"></div>
 
                 <button class="nav-item" data-page="skills" data-tooltip="Skill Tree">
@@ -97,6 +106,9 @@
                 </button>
                 <button class="nav-item" data-page="mood" data-tooltip="Mood &amp; Energy">
                     <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                </button>
+                <button class="nav-item" data-page="calendar" data-tooltip="Calendar">
+                    <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/></svg>
                 </button>
             </div>
 
@@ -124,14 +136,24 @@
                             <span class="dash-level-num" id="level-indicator">1</span>
                             <canvas id="spaceship-canvas" width="72" height="72" class="dash-ship-canvas"></canvas>
                         </div>
+                        <div id="prestige-stars" class="prestige-stars hidden"></div>
                         <div class="dash-ship-name" id="ship-name">Rusty Pod</div>
                         <div class="dash-level-label">CURRENT VESSEL</div>
+                        <div id="class-badge" class="class-badge hidden"></div>
+                        <button id="prestige-btn" class="prestige-btn hidden" onclick="showPrestigeModal()">⭐ Prestige</button>
                         <div class="progress-bar">
                             <div class="progress-fill" id="xp-bar"></div>
                         </div>
                         <div class="dash-xp-meta">
                             <span class="dash-xp-label">XP Progress</span>
                             <span class="dash-streak-label" id="streak-indicator"></span>
+                        </div>
+                        <div id="productivity-score" class="productivity-score">
+                            <div class="productivity-score-number">—</div>
+                            <div class="productivity-score-meta">
+                                <span class="productivity-score-label">Productivity Score</span>
+                                <span class="productivity-score-trend"></span>
+                            </div>
                         </div>
                         <div class="dash-stats-row">
                             <div class="dash-stat">
@@ -153,12 +175,27 @@
                     <!-- orb-canvas moved to app-shell level -->
                 </div>
 
+                <!-- Crew section — shown once first member is unlocked -->
+                <div class="crew-section hidden section-card" id="crew-section">
+                    <div class="section-label">Crew</div>
+                    <div class="crew-avatar-row" id="crew-avatar-row"></div>
+                </div>
+
                 <div class="conflict-banner hidden" id="conflict-banner">
                     <div class="conflict-title">⚠ Sync Conflict Detected</div>
                     <div class="conflict-compare">
                         <div><h4>Local</h4><div id="conflict-local"></div><button id="keep-local" class="btn-secondary">Keep Local</button></div>
                         <div><h4>Server</h4><div id="conflict-remote"></div><button id="keep-remote" class="btn-secondary">Use Server</button></div>
                     </div>
+                </div>
+
+                <div class="event-banner hidden" id="event-banner">
+                    <span class="event-banner-emoji"></span>
+                    <div class="event-banner-content">
+                        <span class="event-banner-name"></span>
+                        <span class="event-banner-desc"></span>
+                    </div>
+                    <span class="event-banner-bonus"></span>
                 </div>
 
                 <div class="section-card">
@@ -179,6 +216,13 @@
                 </div>
                 <div class="section-card">
                     <div class="section-label">New Mission</div>
+                    <div class="template-bar">
+                        <button type="button" id="template-toggle-btn" class="btn-ghost template-toggle-btn">Templates ▾</button>
+                        <button type="button" id="save-template-btn" class="btn-ghost template-save-btn">Save as template</button>
+                        <div id="template-panel" class="template-panel hidden">
+                            <div class="template-list"></div>
+                        </div>
+                    </div>
                     <div class="input-row">
                         <input type="text" id="task-input" placeholder="Enter a new mission...">
                         <button id="add-btn" class="btn-primary">Deploy</button>
@@ -201,10 +245,26 @@
                             <option value="normal" selected>Normal</option>
                             <option value="high">High Priority</option>
                         </select>
+                        <select id="task-recur">
+                            <option value="none" selected>No Recurrence</option>
+                            <option value="daily">↻ Daily</option>
+                            <option value="weekly">↻ Weekly</option>
+                            <option value="monthly">↻ Monthly</option>
+                        </select>
                     </div>
                     <div class="due-row">
                         <label class="due-label" for="task-due">Due date <span class="due-optional">(optional)</span></label>
                         <input type="date" id="task-due">
+                    </div>
+                    <div class="estimate-row">
+                        <label class="due-label">Estimate <span class="due-optional">(optional)</span></label>
+                        <div class="estimate-quickpicks">
+                            <button type="button" class="estimate-quick-btn" data-mins="15">15m</button>
+                            <button type="button" class="estimate-quick-btn" data-mins="30">30m</button>
+                            <button type="button" class="estimate-quick-btn" data-mins="60">1h</button>
+                            <button type="button" class="estimate-quick-btn" data-mins="120">2h</button>
+                        </div>
+                        <input type="number" id="task-estimate" min="1" max="999" placeholder="min" class="estimate-input">
                     </div>
                     <div class="row-gap">
                         <button id="export-btn" class="btn-secondary">Export</button>
@@ -292,6 +352,19 @@
                     <p class="page-eyebrow">Your Identity</p>
                     <h1>Profile</h1>
                     <p class="page-subtitle">Your public captain identity.</p>
+                </div>
+                <div class="section-card">
+                    <div class="section-label">Color Theme</div>
+                    <div class="theme-switcher-row">
+                        <div class="theme-switcher-label">Choose your cockpit palette</div>
+                        <div class="theme-switcher" id="theme-switcher">
+                            <button class="theme-swatch active" data-theme="default" title="Default (Space)" aria-label="Default theme"></button>
+                            <button class="theme-swatch" data-theme="solar"   title="Solar Flare"       aria-label="Solar Flare theme"></button>
+                            <button class="theme-swatch" data-theme="nebula"  title="Nebula"            aria-label="Nebula theme"></button>
+                            <button class="theme-swatch" data-theme="arctic"  title="Arctic"            aria-label="Arctic theme"></button>
+                            <button class="theme-swatch" data-theme="forest"  title="Forest"            aria-label="Forest theme"></button>
+                        </div>
+                    </div>
                 </div>
                 <div class="section-card">
                     <div class="section-label">Your Profile</div>
@@ -407,6 +480,7 @@
                     <p class="page-subtitle">Small daily actions that compound into greatness.</p>
                 </div>
                 <div id="habit-add-form"></div>
+                <div id="habit-heatmap"></div>
                 <div id="habit-today"></div>
                 <div id="habit-history"></div>
             </div>
@@ -454,6 +528,32 @@
                 <div id="loot-inventory"></div>
             </div>
 
+            <!-- ── STATS ──────────────────────────────────────────────── -->
+            <div class="page hidden" id="page-stats">
+                <div class="page-header">
+                    <p class="page-eyebrow">Mission Analytics</p>
+                    <h1>Stats</h1>
+                    <p class="page-subtitle">Track your XP gains, completions, and category focus.</p>
+                </div>
+                <div class="stats-charts">
+                    <div class="stats-chart-card">
+                        <div class="stats-canvas-wrap">
+                            <canvas id="stats-canvas-xp"></canvas>
+                        </div>
+                    </div>
+                    <div class="stats-chart-card">
+                        <div class="stats-canvas-wrap">
+                            <canvas id="stats-canvas-completions"></canvas>
+                        </div>
+                    </div>
+                    <div class="stats-chart-card">
+                        <div class="stats-canvas-wrap">
+                            <canvas id="stats-canvas-categories"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- ── MOOD ───────────────────────────────────────────────── -->
             <div class="page hidden" id="page-mood">
                 <div class="page-header">
@@ -465,16 +565,69 @@
                 <div id="mood-history"></div>
             </div>
 
+            <!-- ── CALENDAR ──────────────────────────────────────────── -->
+            <div class="page hidden" id="page-calendar">
+                <div class="page-header">
+                    <p class="page-eyebrow">Mission Timeline</p>
+                    <h1>Calendar</h1>
+                    <p class="page-subtitle">See all your missions laid out across time.</p>
+                </div>
+                <div id="cal-container" class="cal-container"></div>
+            </div>
+
         </main>
     </div>
 
+    <!-- ─── WEEKLY REPORT MODAL ───────────────────────────────────────────── -->
+    <div class="wr-overlay hidden" id="weekly-report-modal" role="dialog" aria-modal="true" aria-labelledby="wr-title">
+        <div class="wr-card">
+            <div class="wr-header">
+                <span class="wr-icon">📊</span>
+                <h2 class="wr-title" id="wr-title">Last Week's Mission Report</h2>
+            </div>
+            <div class="wr-stats">
+                <div class="wr-stat-row">
+                    <span class="wr-stat-label">🚀 Missions Completed</span>
+                    <span class="wr-stat-val" data-stat="missions">0</span>
+                </div>
+                <div class="wr-stat-row">
+                    <span class="wr-stat-label">⚡ XP Earned</span>
+                    <span class="wr-stat-val" data-stat="xp">+0 XP</span>
+                </div>
+                <div class="wr-stat-row">
+                    <span class="wr-stat-label">🏆 Best Day</span>
+                    <span class="wr-stat-val" data-stat="bestday">—</span>
+                </div>
+                <div class="wr-stat-row">
+                    <span class="wr-stat-label">🔁 Habits Maintained</span>
+                    <span class="wr-stat-val" data-stat="habits">0 / 0</span>
+                </div>
+                <div class="wr-stat-row">
+                    <span class="wr-stat-label">⏱ Focus Sessions</span>
+                    <span class="wr-stat-val" data-stat="focus">0</span>
+                </div>
+                <div class="wr-stat-row">
+                    <span class="wr-stat-label">👾 Boss Status</span>
+                    <span class="wr-stat-val wr-boss-val" data-stat="boss">Escaped</span>
+                </div>
+            </div>
+            <p class="wr-motivation"></p>
+            <button class="wr-dismiss btn-primary" id="wr-dismiss-btn">Let's Go! →</button>
+        </div>
+    </div>
+
     <script src="node_modules/three/build/three.min.js"></script>
-    <script src="script.js?v=11"></script>
+    <script src="script.js?v=12"></script>
+    <script src="stats.js?v=11"></script>
     <script src="habits.js"></script>
     <script src="focus.js"></script>
     <script src="quests.js"></script>
     <script src="skills.js"></script>
     <script src="loot.js"></script>
     <script src="mood.js"></script>
+    <script src="calendar.js?v=15"></script>
+    <script>
+      if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
+    </script>
 </body>
 </html>
