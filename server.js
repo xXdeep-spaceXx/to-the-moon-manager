@@ -353,6 +353,33 @@ app.post("/api/reset-confirm", (req, res) => {
     );
 });
 
+// Create a Stripe Checkout session and return the redirect URL
+app.post("/api/checkout", requireAuth, async (req, res) => {
+    if (!stripe) return res.status(400).json({ error: "stripe_not_configured" });
+
+    const plan = req.body.plan || "";
+    const priceId =
+        plan === "commander" ? process.env.STRIPE_COMMANDER_PRICE_ID :
+        plan === "legend"    ? process.env.STRIPE_LEGEND_PRICE_ID    : null;
+
+    if (!priceId) return res.status(400).json({ error: "invalid_plan" });
+
+    const appUrl = process.env.APP_URL || "http://localhost:3030";
+
+    try {
+        const session = await stripe.checkout.sessions.create({
+            mode: "subscription",
+            line_items: [{ price: priceId, quantity: 1 }],
+            success_url: `${appUrl}/?checkout=success`,
+            cancel_url:  `${appUrl}/?checkout=cancel`,
+            metadata: { userId: req.userId },
+        });
+        res.json({ url: session.url });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get("/api/entitlements", requireAuth, (req, res) => {
     db.get("SELECT features_json FROM entitlements WHERE user_id = ?", [req.userId], (err, row) => {
         if (err) return res.status(500).json({ error: "db_error" });
@@ -446,11 +473,47 @@ app.post("/api/friends/accept", requireAuth, (req, res) => {
 
 app.get("/api/friends", requireAuth, (req, res) => {
     db.all(
-        "SELECT user_a, user_b FROM friends WHERE user_a = ? OR user_b = ?",
-        [req.userId, req.userId],
+        `SELECT f.id, f.created_at,
+            CASE WHEN f.user_a = ? THEN ub.email ELSE ua.email END AS friend_email
+         FROM friends f
+         JOIN users ua ON ua.id = f.user_a
+         JOIN users ub ON ub.id = f.user_b
+         WHERE f.user_a = ? OR f.user_b = ?`,
+        [req.userId, req.userId, req.userId],
         (err, rows) => {
             if (err) return res.status(500).json({ error: "db_error" });
             res.json({ friends: rows });
+        }
+    );
+});
+
+app.get("/api/friends/pending", requireAuth, (req, res) => {
+    db.get("SELECT email FROM users WHERE id = ?", [req.userId], (err, user) => {
+        if (err || !user) return res.status(500).json({ error: "db_error" });
+        db.all(
+            `SELECT fi.id, u.email AS from_email, fi.created_at
+             FROM friend_invites fi
+             JOIN users u ON u.id = fi.from_user
+             WHERE fi.to_email = ? AND fi.status = 'pending'`,
+            [user.email],
+            (err2, rows) => {
+                if (err2) return res.status(500).json({ error: "db_error" });
+                res.json({ pending: rows });
+            }
+        );
+    });
+});
+
+app.get("/api/challenges/community", requireAuth, (req, res) => {
+    db.all(
+        `SELECT c.id, c.title, c.goal, c.created_at,
+            (SELECT COUNT(*) FROM challenge_members WHERE challenge_id = c.id) AS members
+         FROM challenges c
+         ORDER BY c.created_at DESC LIMIT 20`,
+        [],
+        (err, rows) => {
+            if (err) return res.status(500).json({ error: "db_error" });
+            res.json({ challenges: rows });
         }
     );
 });

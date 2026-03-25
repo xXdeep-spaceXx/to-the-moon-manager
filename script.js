@@ -3645,16 +3645,43 @@ function addHofManual() {
     persistAndRender();
 }
 
-function addHofAI() {
+async function addHofAI() {
     const btn = document.getElementById("hof-ai");
-    const token = generateAIToken();
+    const original = btn.textContent;
+    btn.textContent = "✦ Generating…";
+    btn.disabled = true;
+
+    // Build a context summary to feed the AI
+    const ctx = [
+        state.profile.level > 1 ? `Level ${state.profile.level}` : null,
+        state.profile.streakDays > 0 ? `${state.profile.streakDays}-day streak` : null,
+        state.stats?.totalCompletions ? `${state.stats.totalCompletions} missions completed` : null,
+        state.profile.class ? `Class: ${state.profile.class}` : null,
+    ].filter(Boolean).join(", ") || "a dedicated astronaut";
+
+    let token;
+    const authToken = config.storage.authToken;
+    if (authToken) {
+        try {
+            const res = await fetch(`${config.storage.baseUrl}/api/tokens/generate`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+                body: JSON.stringify({ title: ctx })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                token = { ...generateAIToken(), title: data.title, description: data.description };
+            }
+        } catch (_) {}
+    }
+    // Fallback to local generation if server call failed or user is offline
+    if (!token) token = generateAIToken();
+
     state.hallOfFame.push(token);
     touchState();
     persistAndRender();
-    // Brief confirmation feedback on the button
-    const original = btn.textContent;
+
     btn.textContent = "✓ Token minted!";
-    btn.disabled = true;
     setTimeout(() => {
         btn.textContent = original;
         btn.disabled = false;
@@ -3954,6 +3981,9 @@ async function login() {
         showAppShell();
         render();
         fetchSimilarUsers();
+        loadEntitlements();
+        loadFriends();
+        loadCommunityChallenges();
     }
 }
 
@@ -4528,6 +4558,293 @@ function cap(str, max) {
     return str.length > max ? str.slice(0, max - 1) + "…" : str;
 }
 
+// ─── General Toast ────────────────────────────────────────────────────────────
+let _toastTimer = null;
+function showToast(msg, duration = 3000) {
+    const el = document.getElementById("app-toast");
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add("visible");
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => el.classList.remove("visible"), duration);
+}
+
+// ─── Nav Labels ───────────────────────────────────────────────────────────────
+const NAV_LABELS = {
+    dashboard: "Home", missions: "Missions", epics: "Epics",
+    achievements: "Awards", hall: "Hall", profile: "Profile",
+    pro: "Pro", roadmap: "Roadmap", habits: "Habits",
+    focus: "Focus", quests: "Quests", stats: "Stats",
+    skills: "Skills", loot: "Loot", mood: "Mood", calendar: "Calendar",
+};
+document.querySelectorAll(".nav-item[data-page]").forEach(btn => {
+    const span = document.createElement("span");
+    span.className = "nav-label";
+    span.textContent = NAV_LABELS[btn.dataset.page] || btn.dataset.tooltip || "";
+    btn.appendChild(span);
+});
+
+// ─── Mobile More Sheet ────────────────────────────────────────────────────────
+(function initMoreSheet() {
+    const overlay = document.getElementById("more-sheet-overlay");
+    const grid    = document.getElementById("more-sheet-grid");
+    const moreBtn = document.getElementById("nav-more-btn");
+    if (!overlay || !grid || !moreBtn) return;
+
+    // Build sheet items from non-primary nav buttons
+    const nonPrimary = [...document.querySelectorAll(".nav-item[data-page]:not([data-mobile-primary])")];
+    nonPrimary.forEach(btn => {
+        const item = document.createElement("button");
+        item.className = "more-sheet-item";
+        item.dataset.page = btn.dataset.page;
+        item.innerHTML = btn.querySelector(".nav-icon").outerHTML +
+            `<span>${NAV_LABELS[btn.dataset.page] || btn.dataset.tooltip}</span>`;
+        item.addEventListener("click", () => {
+            showPage(btn.dataset.page);
+            closeMoreSheet();
+        });
+        grid.appendChild(item);
+    });
+
+    moreBtn.addEventListener("click", () => overlay.classList.add("open"));
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) closeMoreSheet(); });
+
+    function closeMoreSheet() { overlay.classList.remove("open"); }
+    window.closeMoreSheet = closeMoreSheet;
+})();
+
+// ─── Onboarding ───────────────────────────────────────────────────────────────
+(function initOnboarding() {
+    if (localStorage.getItem("moonOnboarded")) return;
+    const overlay = document.getElementById("onboard-overlay");
+    if (!overlay) return;
+
+    let step = 1;
+    const totalSteps = 3;
+
+    function show() { overlay.classList.add("open"); }
+    function dismiss() {
+        overlay.classList.remove("open");
+        localStorage.setItem("moonOnboarded", "1");
+    }
+    function goTo(n) {
+        overlay.querySelectorAll(".onboard-step").forEach(s => s.classList.remove("active"));
+        overlay.querySelectorAll(".onboard-dot").forEach(d => d.classList.remove("active"));
+        const stepEl = overlay.querySelector(`.onboard-step[data-step="${n}"]`);
+        const dotEl  = overlay.querySelector(`.onboard-dot[data-dot="${n}"]`);
+        if (stepEl) stepEl.classList.add("active");
+        if (dotEl)  dotEl.classList.add("active");
+        const nextBtn = document.getElementById("onboard-next");
+        if (nextBtn) nextBtn.textContent = n < totalSteps ? "Next →" : "Let's Go! 🚀";
+    }
+
+    document.getElementById("onboard-skip")?.addEventListener("click", dismiss);
+    document.getElementById("onboard-next")?.addEventListener("click", () => {
+        step < totalSteps ? goTo(++step) : dismiss();
+    });
+
+    // Show only after app shell is visible (first login check deferred)
+    const origShowApp = window.showAppShell;
+    setTimeout(() => {
+        if (!localStorage.getItem("moonOnboarded")) show();
+    }, 4000);
+})();
+
+// ─── Friends System ───────────────────────────────────────────────────────────
+async function loadFriends() {
+    const token = config.storage.authToken;
+    if (!token) return;
+    try {
+        const [frRes, pendRes] = await Promise.all([
+            fetch(`${config.storage.baseUrl}/api/friends`, { headers: { Authorization: `Bearer ${token}` } }),
+            fetch(`${config.storage.baseUrl}/api/friends/pending`, { headers: { Authorization: `Bearer ${token}` } }),
+        ]);
+        const { friends = [] }  = frRes.ok   ? await frRes.json()   : {};
+        const { pending = [] }  = pendRes.ok  ? await pendRes.json() : {};
+        renderFriends(friends, pending);
+    } catch (_) {}
+}
+
+function renderFriends(friends, pending) {
+    const el = document.getElementById("friends-list");
+    if (!el) return;
+
+    let html = "";
+    if (pending.length) {
+        html += `<div class="section-label" style="margin:12px 0 8px;font-size:11px">Pending Invites</div>`;
+        pending.forEach(inv => {
+            html += `<div class="pending-invite-item">
+                <span class="pending-from">🛸 Invite from <strong>${inv.from_email}</strong></span>
+                <button class="btn-secondary" style="padding:5px 14px;font-size:12px" onclick="acceptInvite('${inv.id}')">Accept</button>
+            </div>`;
+        });
+    }
+    if (friends.length) {
+        html += `<div class="section-label" style="margin:12px 0 8px;font-size:11px">Crew</div>`;
+        friends.forEach(f => {
+            html += `<div class="friend-item"><span class="friend-email">🧑‍🚀 ${f.friend_email}</span></div>`;
+        });
+    }
+    if (!friends.length && !pending.length) {
+        html = `<div class="hint-row">No crew yet — invite a friend above.</div>`;
+    }
+    el.innerHTML = html;
+}
+
+async function sendFriendInvite() {
+    const emailEl = document.getElementById("invite-email");
+    const email = emailEl?.value.trim();
+    if (!email) return;
+    const token = config.storage.authToken;
+    if (!token) { showToast("Sign in to invite friends."); return; }
+    try {
+        const res = await fetch(`${config.storage.baseUrl}/api/friends/invite`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ toEmail: email })
+        });
+        if (res.ok) {
+            showToast(`Invite sent to ${email}!`);
+            if (emailEl) emailEl.value = "";
+        } else {
+            showToast("Could not send invite.");
+        }
+    } catch (_) { showToast("Could not send invite."); }
+}
+
+async function acceptInvite(inviteId) {
+    const token = config.storage.authToken;
+    if (!token) return;
+    try {
+        const res = await fetch(`${config.storage.baseUrl}/api/friends/accept`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ inviteId })
+        });
+        if (res.ok) { showToast("Crew member added!"); loadFriends(); }
+        else showToast("Could not accept invite.");
+    } catch (_) {}
+}
+
+document.getElementById("invite-btn")?.addEventListener("click", sendFriendInvite);
+
+// ─── Community Challenges ─────────────────────────────────────────────────────
+async function loadCommunityChallenges() {
+    const token = config.storage.authToken;
+    if (!token) return;
+    try {
+        const res = await fetch(`${config.storage.baseUrl}/api/challenges/community`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) return;
+        const { challenges } = await res.json();
+        renderCommunityChallenges(challenges);
+    } catch (_) {}
+}
+
+function renderCommunityChallenges(challenges) {
+    let el = document.getElementById("community-challenge-list");
+    if (!el) return;
+    if (!challenges.length) {
+        el.innerHTML = `<div class="hint-row">No community challenges yet. Share one!</div>`;
+        return;
+    }
+    el.innerHTML = challenges.map(ch => `
+        <div class="community-challenge-item">
+            <div class="community-challenge-info">
+                <div class="community-challenge-title">${ch.title}</div>
+                <div class="community-challenge-meta">${ch.goal} · ${ch.members} member${ch.members !== 1 ? "s" : ""}</div>
+            </div>
+            <button class="btn-secondary" style="padding:5px 14px;font-size:12px;flex-shrink:0" onclick="joinCommunityChallenge('${ch.id}')">Join</button>
+        </div>
+    `).join("");
+}
+
+async function joinCommunityChallenge(challengeId) {
+    const token = config.storage.authToken;
+    if (!token) { showToast("Sign in to join challenges."); return; }
+    try {
+        const res = await fetch(`${config.storage.baseUrl}/api/challenges/join`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ challengeId })
+        });
+        if (res.ok) { showToast("Joined challenge!"); loadCommunityChallenges(); }
+        else showToast("Could not join challenge.");
+    } catch (_) {}
+}
+
+// ─── Entitlements & Pro Checkout ──────────────────────────────────────────────
+async function loadEntitlements() {
+    const token = config.storage.authToken;
+    if (!token) return;
+    try {
+        const res = await fetch(`${config.storage.baseUrl}/api/entitlements`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) return;
+        const { features } = await res.json();
+        Object.assign(config.premium, features);
+        renderPro();
+    } catch (_) {}
+}
+
+async function startCheckout(plan) {
+    const token = config.storage.authToken;
+    if (!token) { showToast("Sign in to upgrade."); return; }
+    try {
+        const res = await fetch(`${config.storage.baseUrl}/api/checkout`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ plan })
+        });
+        const data = await res.json();
+        if (data.url) {
+            window.location.href = data.url;
+        } else {
+            showToast(data.error === "stripe_not_configured" ? "Payments not configured yet." : "Checkout failed.");
+        }
+    } catch (_) {
+        showToast("Could not start checkout.");
+    }
+}
+
+function renderPro() {
+    document.querySelectorAll(".premium-card[data-feature]").forEach(card => {
+        const feature = card.dataset.feature;
+        const unlocked = !!config.premium[feature];
+        card.classList.toggle("locked", !unlocked);
+        card.classList.toggle("unlocked", unlocked);
+        const btn = card.querySelector(".btn-premium");
+        if (btn) {
+            btn.textContent = unlocked ? "✓ Active" : "Upgrade ✦";
+            btn.disabled = unlocked;
+        }
+    });
+}
+
+// Wire Upgrade buttons — read plan from card's data-plan or default to commander
+document.getElementById("page-pro").addEventListener("click", (e) => {
+    const btn = e.target.closest(".btn-premium");
+    if (!btn || btn.disabled) return;
+    const plan = btn.closest("[data-plan]")?.dataset.plan || "commander";
+    startCheckout(plan);
+});
+
+// Handle return from Stripe checkout
+(function handleCheckoutReturn() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") === "success") {
+        history.replaceState({}, "", "/");
+        setTimeout(() => {
+            loadEntitlements();
+            showToast("🎉 You're now Pro! Features unlocked.");
+        }, 1000);
+    } else if (params.get("checkout") === "cancel") {
+        history.replaceState({}, "", "/");
+    }
+})();
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
     initGalaxy();
@@ -4550,6 +4867,9 @@ async function init() {
         showAppShell();
         render();
         fetchSimilarUsers();
+        loadEntitlements();
+        loadFriends();
+        loadCommunityChallenges();
     } else {
         showAuthScreen();
         render();

@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=15">
+    <link rel="stylesheet" href="style.css?v=16">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#080810">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -55,10 +55,10 @@
             </div>
 
             <div class="nav-items">
-                <button class="nav-item active" data-page="dashboard" data-tooltip="Dashboard">
+                <button class="nav-item active" data-page="dashboard" data-tooltip="Dashboard" data-mobile-primary>
                     <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h3a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h3a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>
                 </button>
-                <button class="nav-item" data-page="missions" data-tooltip="Missions">
+                <button class="nav-item" data-page="missions" data-tooltip="Missions" data-mobile-primary>
                     <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
                 </button>
                 <button class="nav-item" data-page="epics" data-tooltip="Epic Missions">
@@ -70,7 +70,7 @@
                 <button class="nav-item" data-page="hall" data-tooltip="Hall of Fame">
                     <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 2a2 2 0 00-2 2v14l3.5-2 3.5 2 3.5-2 3.5 2V4a2 2 0 00-2-2H5zm4.707 3.707a1 1 0 00-1.414-1.414l-3 3a1 1 0 000 1.414l3 3a1 1 0 001.414-1.414L8.414 9H10a3 3 0 013 3v1a1 1 0 102 0v-1a5 5 0 00-5-5H8.414l1.293-1.293z" clip-rule="evenodd"/></svg>
                 </button>
-                <button class="nav-item" data-page="profile" data-tooltip="Profile">
+                <button class="nav-item" data-page="profile" data-tooltip="Profile" data-mobile-primary>
                     <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
                 </button>
                 <button class="nav-item" data-page="pro" data-tooltip="Pro">
@@ -82,10 +82,10 @@
 
                 <div class="nav-divider"></div>
 
-                <button class="nav-item" data-page="habits" data-tooltip="Habits">
+                <button class="nav-item" data-page="habits" data-tooltip="Habits" data-mobile-primary>
                     <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
                 </button>
-                <button class="nav-item" data-page="focus" data-tooltip="Focus Timer">
+                <button class="nav-item" data-page="focus" data-tooltip="Focus Timer" data-mobile-primary>
                     <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
                 </button>
                 <button class="nav-item" data-page="quests" data-tooltip="Daily Quests">
@@ -109,6 +109,11 @@
                 </button>
                 <button class="nav-item" data-page="calendar" data-tooltip="Calendar">
                     <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/></svg>
+                </button>
+
+                <!-- Mobile-only More button -->
+                <button class="nav-item nav-more-btn" id="nav-more-btn" aria-label="More">
+                    <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor"><path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zM12 10a2 2 0 11-4 0 2 2 0 014 0zM16 12a2 2 0 100-4 2 2 0 000 4z"/></svg>
                 </button>
             </div>
 
@@ -392,7 +397,11 @@
                     <div id="friends-list"></div>
                 </div>
                 <div class="section-card">
-                    <div class="section-label">Challenges</div>
+                    <div class="section-label">Community Challenges</div>
+                    <div id="community-challenge-list"><div class="hint-row">Sign in to see community challenges.</div></div>
+                </div>
+                <div class="section-card">
+                    <div class="section-label">My Challenges</div>
                     <div class="challenge-form">
                         <div class="input-row">
                             <input type="text" id="challenge-title" placeholder="Challenge name">
@@ -418,40 +427,60 @@
                 <div class="page-header">
                     <p class="page-eyebrow">Unlock Everything</p>
                     <h1>Pro Upgrades</h1>
-                    <p class="page-subtitle">Unlock your full potential.</p>
+                    <p class="page-subtitle">Supercharge your mission.</p>
                 </div>
-                <div class="premium-grid">
-                    <div class="premium-card locked" data-feature="advancedInsights">
-                        <div class="premium-icon">📊</div>
-                        <h3>Advanced Insights</h3>
-                        <p>Trends, productivity heatmaps, and habit predictions.</p>
+
+                <div class="pricing-grid">
+                    <!-- Free -->
+                    <div class="pricing-card">
+                        <div class="pricing-tier-label">Free</div>
+                        <div class="pricing-price">$0<span>/mo</span></div>
+                        <ul class="pricing-features">
+                            <li>✓ Missions &amp; Habits</li>
+                            <li>✓ Skill Tree &amp; Loot</li>
+                            <li>✓ Daily Quests</li>
+                            <li>✓ Focus Timer</li>
+                            <li>✓ Community Challenges</li>
+                            <li>✓ Hall of Fame</li>
+                            <li class="pricing-feature-off">— Advanced Insights</li>
+                            <li class="pricing-feature-off">— AI Mission Planner</li>
+                            <li class="pricing-feature-off">— Cosmetics</li>
+                            <li class="pricing-feature-off">— Coaching</li>
+                        </ul>
+                        <button class="btn-secondary" disabled>Current Plan</button>
+                    </div>
+
+                    <!-- Commander -->
+                    <div class="pricing-card pricing-card--featured premium-card locked" data-feature="advancedInsights">
+                        <div class="pricing-badge">Most Popular</div>
+                        <div class="pricing-tier-label">Commander</div>
+                        <div class="pricing-price">$9<span>/mo</span></div>
+                        <ul class="pricing-features">
+                            <li>✓ Everything in Free</li>
+                            <li>✓ Advanced Insights</li>
+                            <li>✓ AI Mission Planner</li>
+                            <li>✓ Priority Sync</li>
+                            <li class="pricing-feature-off">— Cosmetics</li>
+                            <li class="pricing-feature-off">— Coaching</li>
+                        </ul>
                         <button class="btn-premium">Upgrade ✦</button>
                     </div>
-                    <div class="premium-card locked" data-feature="aiPlanner">
-                        <div class="premium-icon">🤖</div>
-                        <h3>AI Mission Planner</h3>
-                        <p>Turn big goals into actionable steps with AI.</p>
-                        <button class="btn-premium">Upgrade ✦</button>
-                    </div>
-                    <div class="premium-card locked" data-feature="cosmetics">
-                        <div class="premium-icon">🎨</div>
-                        <h3>Cosmetics</h3>
-                        <p>Ship skins, animated badges, and custom themes.</p>
-                        <button class="btn-premium">Upgrade ✦</button>
-                    </div>
-                    <div class="premium-card">
-                        <div class="premium-icon">🤝</div>
-                        <h3>Accountability</h3>
-                        <p>Community challenges and daily reminders. Free.</p>
-                        <button id="start-challenge" class="btn-secondary">Start Challenge</button>
-                    </div>
-                    <div class="premium-card locked" data-feature="coaching">
-                        <div class="premium-icon">🧭</div>
-                        <h3>Coaching</h3>
-                        <p>Personalized guidance and weekly check-ins.</p>
+
+                    <!-- Legend -->
+                    <div class="pricing-card premium-card locked" data-feature="coaching" data-plan="legend">
+                        <div class="pricing-tier-label">Legend</div>
+                        <div class="pricing-price">$19<span>/mo</span></div>
+                        <ul class="pricing-features">
+                            <li>✓ Everything in Commander</li>
+                            <li>✓ Cosmetics &amp; Ship Skins</li>
+                            <li>✓ Coaching Check-ins</li>
+                            <li>✓ Priority Support</li>
+                        </ul>
                         <button class="btn-premium">Upgrade ✦</button>
                     </div>
                 </div>
+
+                <p class="pricing-note">All plans include unlimited device sync. Cancel anytime.</p>
             </div>
 
             <!-- ── ROADMAP ─────────────────────────────────────────────── -->
@@ -629,5 +658,53 @@
     <script>
       if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
     </script>
+
+    <!-- ─── Mobile More Sheet ───────────────────────────────────────────── -->
+    <div class="more-sheet-overlay" id="more-sheet-overlay">
+        <div class="more-sheet" id="more-sheet">
+            <div class="more-sheet-handle"></div>
+            <div class="more-sheet-grid" id="more-sheet-grid">
+                <!-- populated by JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Onboarding Modal ─────────────────────────────────────────────── -->
+    <div class="onboard-overlay" id="onboard-overlay">
+        <div class="onboard-modal">
+            <button class="onboard-skip" id="onboard-skip">Skip</button>
+            <div class="onboard-steps">
+                <!-- Step 1 -->
+                <div class="onboard-step active" data-step="1">
+                    <div class="onboard-emoji">🚀</div>
+                    <h2>Welcome to To the Moon</h2>
+                    <p>Turn your real-life goals into missions. Earn XP, level up, and build streaks — one task at a time.</p>
+                </div>
+                <!-- Step 2 -->
+                <div class="onboard-step" data-step="2">
+                    <div class="onboard-emoji">🎯</div>
+                    <h2>Create Your First Mission</h2>
+                    <p>Head to <strong>Missions</strong> and add anything you want to accomplish. Mark it complete to earn XP and keep your streak alive.</p>
+                </div>
+                <!-- Step 3 -->
+                <div class="onboard-step" data-step="3">
+                    <div class="onboard-emoji">⚡</div>
+                    <h2>Level Up Your Life</h2>
+                    <p>Complete missions and habits to earn XP. Unlock skills, collect loot, and build your Hall of Fame as you progress.</p>
+                </div>
+            </div>
+            <div class="onboard-footer">
+                <div class="onboard-dots">
+                    <span class="onboard-dot active" data-dot="1"></span>
+                    <span class="onboard-dot" data-dot="2"></span>
+                    <span class="onboard-dot" data-dot="3"></span>
+                </div>
+                <button class="btn-primary onboard-next" id="onboard-next">Next →</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── General Toast ────────────────────────────────────────────────── -->
+    <div class="app-toast" id="app-toast"></div>
 </body>
 </html>
