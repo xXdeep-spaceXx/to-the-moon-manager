@@ -8,6 +8,9 @@ const streakText = document.getElementById("streak-indicator");
 const categorySelect = document.getElementById("task-category");
 const difficultySelect = document.getElementById("task-difficulty");
 const prioritySelect = document.getElementById("task-priority");
+const taskDueInput = document.getElementById("task-due");
+const taskRecurSelect = document.getElementById("task-recur");
+const taskEstimateInput = document.getElementById("task-estimate");
 const recommendationsEl = document.getElementById("recommendations");
 const statsEl = document.getElementById("stats");
 const authEmail = document.getElementById("auth-email");
@@ -40,6 +43,39 @@ const saveProfileBtn = document.getElementById("save-profile");
 const profilePreview = document.getElementById("profile-preview");
 const similarUsersEl = document.getElementById("similar-users");
 
+// ─── Theme ────────────────────────────────────────────────────────────────────
+const THEME_KEY = 'moonTheme';
+const VALID_THEMES = ['default', 'solar', 'nebula', 'arctic', 'forest'];
+
+function applyTheme(theme) {
+    if (!VALID_THEMES.includes(theme)) theme = 'default';
+    if (theme === 'default') {
+        document.documentElement.removeAttribute('data-theme');
+    } else {
+        document.documentElement.setAttribute('data-theme', theme);
+    }
+    localStorage.setItem(THEME_KEY, theme);
+    // Sync active swatch highlight
+    document.querySelectorAll('.theme-swatch').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.theme === theme);
+    });
+}
+
+function initThemeSwitcher() {
+    const switcher = document.getElementById('theme-switcher');
+    if (!switcher) return;
+    switcher.addEventListener('click', e => {
+        const swatch = e.target.closest('.theme-swatch');
+        if (!swatch) return;
+        applyTheme(swatch.dataset.theme);
+    });
+    // Reflect saved theme onto swatches on load
+    const saved = localStorage.getItem(THEME_KEY) || 'default';
+    document.querySelectorAll('.theme-swatch').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.theme === saved);
+    });
+}
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 const config = {
     storage: {
@@ -57,8 +93,8 @@ const STATE_VERSION = 4;
 
 const defaultState = {
     version: STATE_VERSION,
-    meta: { lastModified: null, lastSync: null, conflict: false },
-    profile: { xp: 0, level: 1, xpPerTask: 20, streakDays: 0, lastCompletedDate: null, loginDays: [] },
+    meta: { lastModified: null, lastSync: null, conflict: false, lastWeeklyReport: null, lastLoginReward: null },
+    profile: { xp: 0, level: 1, xpPerTask: 20, streakDays: 0, lastCompletedDate: null, loginDays: [], class: null, prestige: 0, prestigeMultiplier: 1.0 },
     stats: { completionsByCategory: {}, completionsByDifficulty: {}, avgCompletionMs: 0, totalCompletions: 0 },
     tasks: [],
     epics: [],
@@ -70,7 +106,7 @@ const defaultState = {
     focus: { sessions: [] },
     quests: { date: null, list: [] },
     boss: { weekId: null, title: "", hp: 0, maxHp: 100, defeated: false, rewardClaimed: false },
-    loot: { inventory: [] },
+    loot: { inventory: [], activeBoost: null, streakShield: false, focusBonus: 0, equipped: { weapon: null, armor: null, accessory: null, shipModule: null } },
     mood: [],
     skills: {
         health:   { xp: 0, level: 1 },
@@ -78,15 +114,98 @@ const defaultState = {
         learning: { xp: 0, level: 1 },
         finance:  { xp: 0, level: 1 },
         life:     { xp: 0, level: 1 }
-    }
+    },
+    challenges: [],
+    taskTemplates: [],
+    crew: []
 };
 
 const achievementCatalog = [
-    { id: "first-step", title: "First Step", desc: "Complete your first mission.", check: (s) => s.stats.totalCompletions >= 1 },
-    { id: "streak-3", title: "Streak x3", desc: "Reach a 3-day streak.", check: (s) => s.profile.streakDays >= 3 },
-    { id: "streak-7", title: "Streak x7", desc: "Reach a 7-day streak.", check: (s) => s.profile.streakDays >= 7 },
-    { id: "level-5", title: "Orbital Cadet", desc: "Reach level 5.", check: (s) => s.profile.level >= 5 },
-    { id: "epic-1", title: "Epic Commander", desc: "Complete an epic mission.", check: (s) => s.epics.some((e) => e.completedAt) }
+    // ── Missions ──────────────────────────────────────────────────────────────
+    { id: "first-step",      tier: "bronze",   title: "First Step",        desc: "Complete your first mission.",          check: (s) => s.stats.totalCompletions >= 1 },
+    { id: "missions-10",     tier: "silver",   title: "Mission Veteran",   desc: "Complete 10 missions.",                 check: (s) => s.stats.totalCompletions >= 10 },
+    { id: "missions-50",     tier: "gold",     title: "Mission Expert",    desc: "Complete 50 missions.",                 check: (s) => s.stats.totalCompletions >= 50 },
+    { id: "missions-100",    tier: "platinum", title: "Mission Legend",    desc: "Complete 100 missions.",                check: (s) => s.stats.totalCompletions >= 100 },
+
+    // ── Streaks ───────────────────────────────────────────────────────────────
+    { id: "streak-3",        tier: "bronze",   title: "Streak x3",         desc: "Reach a 3-day streak.",                 check: (s) => s.profile.streakDays >= 3 },
+    { id: "streak-7",        tier: "silver",   title: "Streak x7",         desc: "Reach a 7-day streak.",                 check: (s) => s.profile.streakDays >= 7 },
+    { id: "streak-14",       tier: "gold",     title: "Fortnight Fire",    desc: "Reach a 14-day streak.",                check: (s) => s.profile.streakDays >= 14 },
+    { id: "streak-30",       tier: "platinum", title: "Unstoppable",       desc: "Reach a 30-day streak.",                check: (s) => s.profile.streakDays >= 30 },
+
+    // ── XP / Level ────────────────────────────────────────────────────────────
+    { id: "level-3",         tier: "bronze",   title: "Rising Star",       desc: "Reach level 3.",                        check: (s) => s.profile.level >= 3 },
+    { id: "level-5",         tier: "silver",   title: "Orbital Cadet",     desc: "Reach level 5.",                        check: (s) => s.profile.level >= 5 },
+    { id: "level-10",        tier: "gold",     title: "Stellar Pilot",     desc: "Reach level 10.",                       check: (s) => s.profile.level >= 10 },
+    { id: "level-15",        tier: "platinum", title: "Cosmic Admiral",    desc: "Reach level 15.",                       check: (s) => s.profile.level >= 15 },
+
+    // ── Habits ────────────────────────────────────────────────────────────────
+    { id: "habit-first",     tier: "bronze",   title: "New Habit",         desc: "Log your first habit check-in.",        check: (s) => Array.isArray(s.habits) && s.habits.some((h) => h.completedDates && h.completedDates.length >= 1) },
+    { id: "habit-streak-7",  tier: "silver",   title: "Habit Warrior",     desc: "Maintain any habit for 7 consecutive days.", check: (s) => {
+        if (!Array.isArray(s.habits)) return false;
+        return s.habits.some((h) => {
+            if (!h.completedDates || h.completedDates.length < 7) return false;
+            // Check for 7 consecutive dates ending at the most recent logged date
+            const sorted = [...h.completedDates].sort();
+            let streak = 1;
+            for (let i = sorted.length - 1; i > 0; i--) {
+                const diff = (new Date(sorted[i]) - new Date(sorted[i - 1])) / 86400000;
+                if (diff === 1) { streak++; if (streak >= 7) return true; }
+                else if (diff > 1) streak = 1;
+            }
+            return streak >= 7;
+        });
+    }},
+    { id: "habit-streak-30", tier: "gold",     title: "Habit Master",      desc: "Maintain any habit for 30 consecutive days.", check: (s) => {
+        if (!Array.isArray(s.habits)) return false;
+        return s.habits.some((h) => {
+            if (!h.completedDates || h.completedDates.length < 30) return false;
+            const sorted = [...h.completedDates].sort();
+            let streak = 1;
+            for (let i = sorted.length - 1; i > 0; i--) {
+                const diff = (new Date(sorted[i]) - new Date(sorted[i - 1])) / 86400000;
+                if (diff === 1) { streak++; if (streak >= 30) return true; }
+                else if (diff > 1) streak = 1;
+            }
+            return streak >= 30;
+        });
+    }},
+
+    // ── Focus Sessions ────────────────────────────────────────────────────────
+    { id: "focus-first",     tier: "bronze",   title: "In the Zone",       desc: "Complete your first focus session.",    check: (s) => s.focus && Array.isArray(s.focus.sessions) && s.focus.sessions.length >= 1 },
+    { id: "focus-10",        tier: "silver",   title: "Deep Focus",        desc: "Complete 10 focus sessions.",           check: (s) => s.focus && Array.isArray(s.focus.sessions) && s.focus.sessions.length >= 10 },
+    { id: "focus-50",        tier: "gold",     title: "Flow State",        desc: "Complete 50 focus sessions.",           check: (s) => s.focus && Array.isArray(s.focus.sessions) && s.focus.sessions.length >= 50 },
+
+    // ── Loot ──────────────────────────────────────────────────────────────────
+    { id: "loot-first",      tier: "bronze",   title: "Lucky Drop",        desc: "Collect your first loot item.",         check: (s) => s.loot && Array.isArray(s.loot.inventory) && s.loot.inventory.length >= 1 },
+    { id: "loot-10",         tier: "silver",   title: "Treasure Hunter",   desc: "Collect 10 loot items.",                check: (s) => s.loot && Array.isArray(s.loot.inventory) && s.loot.inventory.length >= 10 },
+    { id: "loot-legendary",  tier: "gold",     title: "Legendary Haul",    desc: "Collect a legendary loot item.",        check: (s) => s.loot && Array.isArray(s.loot.inventory) && s.loot.inventory.some((item) => item.rarity === "legendary") },
+
+    // ── Mood ──────────────────────────────────────────────────────────────────
+    { id: "mood-first",      tier: "bronze",   title: "Self-Aware",        desc: "Log your first mood check-in.",         check: (s) => Array.isArray(s.mood) && s.mood.length >= 1 },
+    { id: "mood-streak-7",   tier: "silver",   title: "Mind Monitor",      desc: "Log mood check-ins 7 days in a row.",  check: (s) => {
+        if (!Array.isArray(s.mood) || s.mood.length < 7) return false;
+        const dates = s.mood.map((e) => e.date).sort();
+        let streak = 1;
+        for (let i = dates.length - 1; i > 0; i--) {
+            const diff = (new Date(dates[i]) - new Date(dates[i - 1])) / 86400000;
+            if (diff === 1) { streak++; if (streak >= 7) return true; }
+            else if (diff > 1) streak = 1;
+        }
+        return streak >= 7;
+    }},
+
+    // ── Quests ────────────────────────────────────────────────────────────────
+    { id: "quest-first",     tier: "bronze",   title: "Quest Taker",       desc: "Complete your first daily quest.",      check: (s) => s.quests && Array.isArray(s.quests.list) && s.quests.list.some((q) => q.claimed) },
+    { id: "boss-first",      tier: "silver",   title: "Boss Slayer",       desc: "Defeat your first weekly boss.",        check: (s) => s.boss && s.boss.defeated },
+
+    // ── Epics ─────────────────────────────────────────────────────────────────
+    { id: "epic-create",     tier: "bronze",   title: "Epic Dreamer",      desc: "Create your first epic mission.",       check: (s) => Array.isArray(s.epics) && s.epics.length >= 1 },
+    { id: "epic-1",          tier: "gold",     title: "Epic Commander",    desc: "Complete an epic mission.",             check: (s) => s.epics.some((e) => e.completedAt) },
+
+    // ── Skills ────────────────────────────────────────────────────────────────
+    { id: "skill-level-3",   tier: "bronze",   title: "Skill Awakening",   desc: "Reach level 3 in any skill.",           check: (s) => s.skills && Object.values(s.skills).some((sk) => sk.level >= 3) },
+    { id: "skill-level-5",   tier: "silver",   title: "Skill Mastery",     desc: "Reach level 5 in any skill.",           check: (s) => s.skills && Object.values(s.skills).some((sk) => sk.level >= 5) },
 ];
 
 let state = { ...defaultState };
@@ -95,6 +214,11 @@ let selectedEpicId = null;
 let roadmapAnimId = null;
 let roadmapTime = 0;
 
+// ─── Task Filter State ────────────────────────────────────────────────────────
+let taskFilterText = '';
+let taskFilterCategory = 'all';
+let taskFilterStatus = 'active';
+
 // ─── Module API (shared with feature modules) ─────────────────────────────────
 window.APP = {
     getState:         () => state,
@@ -102,6 +226,7 @@ window.APP = {
     touchState:       () => touchState(),
     gainXP:           (n) => gainXP(n),
     persist:          () => persistAndRender(),
+    checkChallenges:  () => checkChallenges(),
     taskCompleteHooks: [],
     renderHooks:       [],
     modules:           {}
@@ -227,6 +352,8 @@ const PAGE_ACCENTS = {
     skills:       [191, 90,  242],
     loot:         [255, 159, 10],
     mood:         [255, 55,  95],
+    stats:        [124, 58,  237],
+    calendar:     [34,  197, 94],
 };
 
 let _currentPage = 'dashboard';
@@ -302,6 +429,12 @@ function showPage(name) {
     const navItem = document.querySelector(`.nav-item[data-page="${name}"]`);
     if (navItem) navItem.classList.add("active");
     if (name === "roadmap") startRoadmapLoop();
+    if (name === "stats" && window.APP && window.APP.renderStats) {
+        setTimeout(function () { window.APP.renderStats(); }, 0);
+    }
+    if (name === "calendar" && window.APP && window.APP.renderCalendar) {
+        setTimeout(function () { window.APP.renderCalendar(); }, 0);
+    }
 
     // Update ambient accent color
     const [r, g, b] = PAGE_ACCENTS[name] || [10, 132, 255];
@@ -326,11 +459,655 @@ function showAuthScreen() {
     document.getElementById("app-shell").classList.add("hidden");
 }
 
+// ─── Weekly Report ────────────────────────────────────────────────────────────
+function getThisMonday() {
+    const d = new Date();
+    const day = d.getDay() || 7; // 1=Mon … 7=Sun
+    d.setDate(d.getDate() - (day - 1));
+    return d.toISOString().slice(0, 10);
+}
+
+function getLastWeekRange() {
+    const thisMonday = new Date(getThisMonday());
+    const lastMonday = new Date(thisMonday);
+    lastMonday.setDate(lastMonday.getDate() - 7);
+    const lastSunday = new Date(thisMonday);
+    lastSunday.setDate(lastSunday.getDate() - 1);
+    lastSunday.setHours(23, 59, 59, 999);
+    return { start: lastMonday, end: lastSunday };
+}
+
+function checkWeeklyReport() {
+    const thisMonday = getThisMonday();
+
+    // Already shown this week
+    if (state.meta.lastWeeklyReport === thisMonday) return;
+
+    const { start, end } = getLastWeekRange();
+
+    // Ensure there is any data before this week (user has been active for at least 1 week)
+    const allCompleted = (state.tasks || []).filter(t => t.status === "completed" && t.completedAt);
+    const hasOldData = allCompleted.some(t => new Date(t.completedAt) < start);
+    const lastWeekTasks = allCompleted.filter(t => {
+        const d = new Date(t.completedAt);
+        return d >= start && d <= end;
+    });
+
+    // Only show the modal if there was activity last week OR user has old data (has been around 1+ week)
+    if (lastWeekTasks.length === 0 && !hasOldData) return;
+    if (lastWeekTasks.length === 0) return; // no last-week data → skip silently
+
+    // XP earned last week
+    const xpEarned = lastWeekTasks.reduce((sum, t) => sum + (t.xpValue || 0), 0);
+
+    // Best day
+    const dayCounts = {};
+    const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    lastWeekTasks.forEach(t => {
+        const day = DAY_NAMES[new Date(t.completedAt).getDay()];
+        dayCounts[day] = (dayCounts[day] || 0) + 1;
+    });
+    let bestDay = "—", bestDayCount = 0;
+    Object.entries(dayCounts).forEach(([day, count]) => {
+        if (count > bestDayCount) { bestDayCount = count; bestDay = day; }
+    });
+
+    // Habits maintained every day of last week
+    let habitsMaintained = 0;
+    const weekDates = [];
+    for (let i = 0; i < 7; i++) {
+        const d = new Date(start);
+        d.setDate(d.getDate() + i);
+        weekDates.push(d.toISOString().slice(0, 10));
+    }
+    (state.habits || []).forEach(h => {
+        if (!Array.isArray(h.completedDates)) return;
+        const allDone = weekDates.every(date => h.completedDates.includes(date));
+        if (allDone) habitsMaintained++;
+    });
+
+    // Focus sessions last week
+    const focusSessions = (state.focus && Array.isArray(state.focus.sessions))
+        ? state.focus.sessions.filter(s => {
+            const d = new Date(s.date);
+            return d >= start && d <= end;
+        }).length
+        : 0;
+
+    // Boss defeated last week — check weekId against last week's ISO week
+    const lastMondayDate = new Date(start);
+    const lastMondayDay = lastMondayDate.getDay() || 7;
+    const tmp = new Date(lastMondayDate);
+    tmp.setDate(tmp.getDate() + 4 - lastMondayDay);
+    const lastWeekYear = tmp.getFullYear();
+    const lastWeekNum = Math.ceil((((tmp - new Date(lastWeekYear, 0, 1)) / 86400000) + 1) / 7);
+    const lastWeekId = `${lastWeekYear}-W${String(lastWeekNum).padStart(2, '0')}`;
+    const bossDefeated = !!(state.boss && state.boss.weekId === lastWeekId && state.boss.defeated);
+
+    // Motivational line
+    let motivation;
+    const score = lastWeekTasks.length + focusSessions + habitsMaintained * 2;
+    if (score >= 20)      motivation = "Legendary week. You're unstoppable — keep pushing toward the Moon.";
+    else if (score >= 12) motivation = "Solid performance, Commander. Momentum is everything.";
+    else if (score >= 6)  motivation = "Good progress. Every mission completed moves the ship forward.";
+    else                  motivation = "Small steps count. Launch again this week — you've got this.";
+
+    // Build modal content
+    const modal = document.getElementById("weekly-report-modal");
+    if (!modal) return;
+
+    modal.querySelector(".wr-stat-val[data-stat='missions']").textContent = lastWeekTasks.length;
+    modal.querySelector(".wr-stat-val[data-stat='xp']").textContent = `+${xpEarned} XP`;
+    modal.querySelector(".wr-stat-val[data-stat='bestday']").textContent = bestDayCount > 0 ? `${bestDay} (${bestDayCount})` : "—";
+    modal.querySelector(".wr-stat-val[data-stat='habits']").textContent = habitsMaintained + " / " + (state.habits || []).length;
+    modal.querySelector(".wr-stat-val[data-stat='focus']").textContent = focusSessions;
+    modal.querySelector(".wr-stat-val[data-stat='boss']").textContent = bossDefeated ? "Defeated ✓" : "Escaped";
+    modal.querySelector(".wr-boss-val").classList.toggle("wr-boss-defeated", bossDefeated);
+    modal.querySelector(".wr-motivation").textContent = motivation;
+
+    modal.classList.remove("hidden");
+    requestAnimationFrame(() => modal.classList.add("wr-visible"));
+
+    // Mark shown and persist
+    state.meta.lastWeeklyReport = thisMonday;
+    storage.save(state);
+}
+
+// ─── Daily Login Reward ───────────────────────────────────────────────────────
+const DAILY_REWARD_LOOT_TABLE = [
+    { name: "Star Fragment",   emoji: "⭐",  rarity: "common",    desc: "A small piece of cosmic energy." },
+    { name: "Focus Crystal",   emoji: "💎",  rarity: "common",    desc: "Sharpens your concentration." },
+    { name: "Speed Boots",     emoji: "👟",  rarity: "common",    desc: "You move a little faster today." },
+    { name: "Energy Drink",    emoji: "⚡",  rarity: "common",    desc: "+10% productivity for the hour." },
+    { name: "Map Fragment",    emoji: "🗺️", rarity: "common",    desc: "Part of a larger picture." },
+    { name: "Nebula Core",     emoji: "🌌",  rarity: "rare",      desc: "Dense with stored potential." },
+    { name: "Time Shard",      emoji: "⏳",  rarity: "rare",      desc: "A sliver of reclaimed time." },
+    { name: "Moon Dust",       emoji: "🌙",  rarity: "rare",      desc: "Collected from the lunar surface." },
+    { name: "Warp Drive",      emoji: "🚀",  rarity: "rare",      desc: "Doubles your next mission's XP." },
+    { name: "Cosmic Key",      emoji: "🗝️", rarity: "legendary", desc: "Opens doors that were never there." },
+    { name: "Phoenix Feather", emoji: "🔥",  rarity: "legendary", desc: "Rise from any setback." },
+    { name: "Galaxy Orb",      emoji: "🔮",  rarity: "legendary", desc: "You can see every possible outcome." },
+    { name: "Cosmic Shield",   emoji: "🛡️", rarity: "rare",      desc: "An impenetrable barrier of star-stuff." },
+];
+
+// ─── Seasonal Events ──────────────────────────────────────────────────────────
+const SEASONAL_EVENTS = [
+    {
+        name: "New Year Sprint",
+        emoji: "🎆",
+        description: "Ring in the new year with double the gains!",
+        start: "01-01",
+        end: "01-07",
+        type: "xp2x",
+        bonusText: "Double XP on all missions"
+    },
+    {
+        name: "Valentine's Push",
+        emoji: "💝",
+        description: "Show your goals some love.",
+        start: "02-14",
+        end: "02-16",
+        type: "xp1_5x",
+        bonusText: "+50% XP on all missions"
+    },
+    {
+        name: "Spring Surge",
+        emoji: "🌸",
+        description: "New season, new loot. Drop rates are up!",
+        start: "03-20",
+        end: "03-31",
+        type: "loot_boost",
+        bonusText: "+20% loot drop rate"
+    },
+    {
+        name: "Summer Grind",
+        emoji: "☀️",
+        description: "The sun never sets on your grind.",
+        start: "06-21",
+        end: "07-04",
+        type: "xp2x",
+        bonusText: "Double XP on all missions"
+    },
+    {
+        name: "Back to Focus",
+        emoji: "📚",
+        description: "Season of knowledge. Learning tasks reward double.",
+        start: "09-01",
+        end: "09-15",
+        type: "learning_boost",
+        bonusText: "Double XP on Learning missions"
+    },
+    {
+        name: "Spooky Sprint",
+        emoji: "🎃",
+        description: "A fearsome boss lurks. Complete missions for +20% XP!",
+        start: "10-01",
+        end: "10-31",
+        type: "halloween",
+        bonusText: "+20% XP + special boss event"
+    },
+    {
+        name: "Year-End Blitz",
+        emoji: "🎄",
+        description: "Finish the year strong. Double XP and bonus loot await!",
+        start: "12-15",
+        end: "12-31",
+        type: "xmas",
+        bonusText: "Double XP + guaranteed loot drops"
+    },
+];
+
+function getActiveEvent() {
+    const now = new Date();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day   = String(now.getDate()).padStart(2, '0');
+    const today = `${month}-${day}`;
+
+    for (const event of SEASONAL_EVENTS) {
+        const { start, end } = event;
+        // Handle events that wrap across year boundary (none currently, but safe)
+        if (start <= end) {
+            if (today >= start && today <= end) return event;
+        } else {
+            if (today >= start || today <= end) return event;
+        }
+    }
+    return null;
+}
+
+function showDailyRewardToast(lines) {
+    const existing = document.querySelector('.daily-reward-toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.className = 'daily-reward-toast';
+    toast.innerHTML = `
+        <div class="daily-reward-icon">🌅</div>
+        <div class="daily-reward-body">
+            <div class="daily-reward-title">Daily Reward!</div>
+            ${lines.map(l => `<div class="daily-reward-line">${l}</div>`).join('')}
+        </div>
+    `;
+    document.body.appendChild(toast);
+
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => toast.classList.add('daily-reward-toast--visible'));
+    });
+
+    setTimeout(() => {
+        toast.classList.remove('daily-reward-toast--visible');
+        toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+        setTimeout(() => { if (toast.parentNode) toast.remove(); }, 600);
+    }, 3000);
+}
+
+// ─── Character Classes ────────────────────────────────────────────────────────
+const CLASS_DEFINITIONS = {
+    warrior: {
+        id: 'warrior',
+        name: 'Warrior',
+        emoji: '⚔️',
+        bonus: '+50% XP on Hard difficulty tasks',
+        color: '#e05252',
+        glow: 'rgba(224, 82, 82, 0.35)',
+    },
+    mage: {
+        id: 'mage',
+        name: 'Mage',
+        emoji: '🔮',
+        bonus: 'Double XP from Learning & Work tasks',
+        color: '#9b6fff',
+        glow: 'rgba(155, 111, 255, 0.35)',
+    },
+    rogue: {
+        id: 'rogue',
+        name: 'Rogue',
+        emoji: '🗡️',
+        bonus: '+10% XP per 7-day streak block (max +50%)',
+        color: '#4ecdc4',
+        glow: 'rgba(78, 205, 196, 0.35)',
+    },
+    explorer: {
+        id: 'explorer',
+        name: 'Explorer',
+        emoji: '🧭',
+        bonus: '+20% loot drop rate · +15% XP on all tasks',
+        color: '#f4a742',
+        glow: 'rgba(244, 167, 66, 0.35)',
+    },
+};
+
+// ─── Crew Roster ──────────────────────────────────────────────────────────────
+const CREW_ROSTER = [
+    {
+        id: 'kai',
+        name: 'Kai',
+        role: 'Navigator',
+        emoji: '👨‍✈️',
+        unlockLevel: 3,
+        quote: "I've charted a course to your first milestone. The stars are watching.",
+        quip: "Kai: Stay on course — every mission logged is a star charted.",
+    },
+    {
+        id: 'luna',
+        name: 'Luna',
+        role: 'Engineer',
+        emoji: '🧑‍🔬',
+        unlockLevel: 6,
+        quote: "Systems online. Your momentum is creating real structural changes.",
+        quip: "Luna: The engine runs on consistency. Keep fueling it.",
+    },
+    {
+        id: 'rex',
+        name: 'Rex',
+        role: 'AI Tactical',
+        emoji: '🤖',
+        unlockLevel: 9,
+        quote: "Pattern analysis complete. You are outperforming 73% of known mission profiles.",
+        quip: "Rex: Data confirms it — your output this week is above baseline.",
+    },
+    {
+        id: 'zara',
+        name: 'Zara',
+        role: 'Strategist',
+        emoji: '🧙‍♀️',
+        unlockLevel: 12,
+        quote: "The resistance was real. You broke through it anyway. That's rare.",
+        quip: "Zara: Rare minds push when momentum stalls. You did.",
+    },
+    {
+        id: 'nova',
+        name: 'Nova',
+        role: 'Commander',
+        emoji: '🌟',
+        unlockLevel: 15,
+        quote: "Few reach this altitude. You've earned your rank, Commander.",
+        quip: "Nova: Command is earned, not given. Lead on.",
+    },
+];
+
+function showCrewUnlockModal(member) {
+    const existingId = 'crew-unlock-modal';
+    if (document.getElementById(existingId)) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = existingId;
+    overlay.className = 'crew-modal-overlay';
+
+    overlay.innerHTML = `
+        <div class="crew-modal">
+            <div class="crew-modal-eyebrow">New Crew Member!</div>
+            <div class="crew-modal-portrait">${member.emoji}</div>
+            <div class="crew-modal-name">${member.name}</div>
+            <div class="crew-modal-role">${member.role}</div>
+            <div class="crew-modal-quote"><em>"${member.quote}"</em></div>
+            <button class="crew-modal-dismiss">Welcome aboard!</button>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => overlay.classList.add('crew-modal-overlay--visible'));
+    });
+
+    overlay.querySelector('.crew-modal-dismiss').addEventListener('click', () => {
+        overlay.classList.remove('crew-modal-overlay--visible');
+        overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
+        setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 600);
+    });
+}
+
+function renderCrewSection() {
+    const container = document.getElementById('crew-section');
+    if (!container) return;
+
+    const unlockedIds = Array.isArray(state.crew) ? state.crew : [];
+    if (unlockedIds.length === 0) {
+        container.classList.add('hidden');
+        return;
+    }
+
+    container.classList.remove('hidden');
+    const row = container.querySelector('.crew-avatar-row');
+    if (!row) return;
+
+    row.innerHTML = CREW_ROSTER
+        .filter(m => unlockedIds.includes(m.id))
+        .map(m => `
+            <div class="crew-avatar" data-tip="${m.name} · ${m.role}">
+                <span class="crew-avatar-emoji">${m.emoji}</span>
+                <div class="crew-avatar-tooltip">${m.name}<br><span>${m.role}</span></div>
+            </div>
+        `).join('');
+}
+
+function checkCrewUnlocks(previousLevel, newLevel) {
+    if (!Array.isArray(state.crew)) state.crew = [];
+    const triggered = CREW_ROSTER.filter(m =>
+        m.unlockLevel > previousLevel &&
+        m.unlockLevel <= newLevel &&
+        !state.crew.includes(m.id)
+    );
+    triggered.forEach(m => {
+        state.crew.push(m.id);
+    });
+    if (triggered.length > 0) {
+        // Show modal for the highest-level member unlocked (show sequentially if multiple)
+        triggered.forEach((m, i) => {
+            setTimeout(() => showCrewUnlockModal(m), i * 700 + 400);
+        });
+    }
+}
+
+function showClassSelectionModal() {
+    if (document.getElementById('class-select-modal')) return; // already open
+    if (state.profile.class !== null) return; // already chosen
+
+    const overlay = document.createElement('div');
+    overlay.id = 'class-select-modal';
+    overlay.className = 'class-modal-overlay';
+
+    overlay.innerHTML = `
+        <div class="class-modal">
+            <div class="class-modal-header">
+                <div class="class-modal-title">Choose Your Class</div>
+                <div class="class-modal-subtitle">You have reached Level 5. Your destiny awaits — choose wisely, this cannot be changed.</div>
+            </div>
+            <div class="class-modal-cards">
+                ${Object.values(CLASS_DEFINITIONS).map(c => `
+                    <button class="class-card" data-class="${c.id}" style="--class-color:${c.color};--class-glow:${c.glow}">
+                        <div class="class-card-emoji">${c.emoji}</div>
+                        <div class="class-card-name">${c.name}</div>
+                        <div class="class-card-bonus">${c.bonus}</div>
+                    </button>
+                `).join('')}
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    // Animate in
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => overlay.classList.add('class-modal-overlay--visible'));
+    });
+
+    overlay.querySelectorAll('.class-card').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const chosen = btn.dataset.class;
+            state.profile.class = chosen;
+            touchState();
+            persistAndRender();
+
+            // Dismiss
+            overlay.classList.remove('class-modal-overlay--visible');
+            overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
+            setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 600);
+
+            // Confirmation toast
+            const info = CLASS_DEFINITIONS[chosen];
+            showDailyRewardToast([`You are now a ${info.emoji} ${info.name}!`, info.bonus]);
+        });
+    });
+}
+
+function showPrestigeModal() {
+    if (document.getElementById('prestige-modal')) return;
+    if (state.profile.level < 20) return;
+
+    const nextPrestige = (state.profile.prestige ?? 0) + 1;
+    const ordinals = ['I','II','III','IV','V','VI','VII','VIII','IX','X'];
+    const tierLabel = ordinals[nextPrestige - 1] || `${nextPrestige}`;
+    const newMultiplier = (1.0 + nextPrestige * 0.10).toFixed(1);
+
+    const overlay = document.createElement('div');
+    overlay.id = 'prestige-modal';
+    overlay.className = 'prestige-modal-overlay';
+
+    overlay.innerHTML = `
+        <div class="prestige-modal">
+            <div class="prestige-modal-header">
+                <div class="prestige-modal-icon">⭐</div>
+                <div class="prestige-modal-title">Prestige ${tierLabel}</div>
+                <div class="prestige-modal-subtitle">
+                    You have reached Level 20 and unlocked the power to Prestige.<br>
+                    Reset to Level 1 in exchange for a <strong>permanent +10% XP bonus</strong> and a Prestige Star.
+                </div>
+            </div>
+            <div class="prestige-modal-details">
+                <div class="prestige-detail-row">
+                    <span class="prestige-detail-label">New XP Multiplier</span>
+                    <span class="prestige-detail-val">${newMultiplier}×</span>
+                </div>
+                <div class="prestige-detail-row">
+                    <span class="prestige-detail-label">Hall of Fame Token</span>
+                    <span class="prestige-detail-val prestige-legendary">Prestige ${tierLabel} · Legendary</span>
+                </div>
+                <div class="prestige-detail-row prestige-warning-row">
+                    <span class="prestige-detail-label">Level &amp; XP</span>
+                    <span class="prestige-detail-val prestige-reset-val">Reset to 1 / 0</span>
+                </div>
+            </div>
+            <div class="prestige-modal-note">Tasks, habits, and all other data are kept.</div>
+            <div class="prestige-modal-actions">
+                <button class="btn-secondary" id="prestige-cancel-btn">Cancel</button>
+                <button class="prestige-confirm-btn" id="prestige-confirm-btn">⭐ Prestige Now</button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => overlay.classList.add('prestige-modal-overlay--visible'));
+    });
+
+    const close = () => {
+        overlay.classList.remove('prestige-modal-overlay--visible');
+        overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
+        setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 600);
+    };
+
+    document.getElementById('prestige-cancel-btn').addEventListener('click', close);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+    document.getElementById('prestige-confirm-btn').addEventListener('click', () => {
+        close();
+        doPrestige();
+    });
+}
+
+function doPrestige() {
+    const ordinals = ['I','II','III','IV','V','VI','VII','VIII','IX','X'];
+    state.profile.prestige = (state.profile.prestige ?? 0) + 1;
+    state.profile.prestigeMultiplier = parseFloat((1.0 + state.profile.prestige * 0.10).toFixed(2));
+
+    // Reset level and XP only
+    state.profile.level = 1;
+    state.profile.xp = 0;
+
+    // Add Legendary HOF token
+    const tierLabel = ordinals[state.profile.prestige - 1] || `${state.profile.prestige}`;
+    const token = {
+        id: `token_prestige_${state.profile.prestige}_${Date.now()}`,
+        title: `Prestige ${tierLabel}`,
+        description: `Transcended mortality and reset to Level 1, carrying ${state.profile.prestigeMultiplier}× XP power forward.`,
+        rarity: 'Legendary',
+        earnedAt: new Date().toISOString()
+    };
+    state.hallOfFame.push(token);
+
+    touchState();
+    persistAndRender();
+
+    showDailyRewardToast([
+        `⭐ Prestige ${tierLabel} achieved!`,
+        `XP multiplier is now ${state.profile.prestigeMultiplier}×`
+    ]);
+}
+
+function showClassBonusToast(emoji, className, bonusXp) {
+    if (bonusXp <= 0) return;
+    const existing = document.querySelector('.class-bonus-toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.className = 'class-bonus-toast';
+    toast.textContent = `${emoji} ${className} bonus: +${bonusXp} XP`;
+    document.body.appendChild(toast);
+
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => toast.classList.add('class-bonus-toast--visible'));
+    });
+
+    setTimeout(() => {
+        toast.classList.remove('class-bonus-toast--visible');
+        toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+        setTimeout(() => { if (toast.parentNode) toast.remove(); }, 500);
+    }, 2500);
+}
+
+function checkDailyLoginReward() {
+    const today = new Date().toISOString().slice(0, 10);
+    if (state.meta.lastLoginReward === today) return;
+
+    const roll = Math.random();
+    const lines = [];
+
+    // 10% chance: bonus XP + loot drop
+    // 20% chance: loot drop only
+    // 70% chance: small XP
+    if (roll < 0.10) {
+        // Bonus XP + loot
+        gainXP(50);
+        lines.push('+50 XP');
+        const template = DAILY_REWARD_LOOT_TABLE[Math.floor(Math.random() * DAILY_REWARD_LOOT_TABLE.length)];
+        if (template && state.loot && Array.isArray(state.loot.inventory)) {
+            const item = {
+                id: 'loot_daily_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+                name: template.name,
+                emoji: template.emoji,
+                rarity: template.rarity,
+                desc: template.desc,
+                earnedAt: new Date().toISOString(),
+            };
+            state.loot.inventory.push(item);
+            lines.push(`Loot Drop: ${template.emoji} ${template.name}!`);
+        }
+    } else if (roll < 0.30) {
+        // Loot drop only
+        const template = DAILY_REWARD_LOOT_TABLE[Math.floor(Math.random() * DAILY_REWARD_LOOT_TABLE.length)];
+        if (template && state.loot && Array.isArray(state.loot.inventory)) {
+            const item = {
+                id: 'loot_daily_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+                name: template.name,
+                emoji: template.emoji,
+                rarity: template.rarity,
+                desc: template.desc,
+                earnedAt: new Date().toISOString(),
+            };
+            state.loot.inventory.push(item);
+            lines.push(`Loot Drop: ${template.emoji} ${template.name}!`);
+        }
+    } else {
+        // Small XP (10–25)
+        const xp = Math.floor(Math.random() * 16) + 10;
+        gainXP(xp);
+        lines.push(`+${xp} XP`);
+    }
+
+    state.meta.lastLoginReward = today;
+    touchState();
+    persistAndRender();
+
+    if (lines.length > 0) {
+        showDailyRewardToast(lines);
+    }
+}
+
 function showAppShell() {
     document.getElementById("screen-auth").classList.add("hidden");
     document.getElementById("app-shell").classList.remove("hidden");
     showPage("dashboard");
     setTimeout(() => { positionOrb("dashboard", false); initOrb(); }, 50);
+    setTimeout(() => checkWeeklyReport(), 1200);
+    setTimeout(() => checkDailyLoginReward(), 2000);
+    setTimeout(() => {
+        if (state.profile.level >= 5 && state.profile.class === null) {
+            showClassSelectionModal();
+        }
+    }, 3200);
+    // Ask for notification permission once, non-intrusively, after 5s
+    setTimeout(() => requestStreakNotificationPermission(), 5000);
+    // Check streak warning on load
+    checkStreakWarning();
+    // Re-check when user returns to the tab
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') checkStreakWarning();
+    });
+    // Re-check every 30 minutes
+    setInterval(() => checkStreakWarning(), 30 * 60 * 1000);
     window.addEventListener('resize', () => positionOrb(_currentPage || 'dashboard', false));
 }
 
@@ -351,8 +1128,77 @@ document.querySelectorAll(".nav-item[data-page]").forEach((item) => {
 });
 
 // ─── Event Listeners ──────────────────────────────────────────────────────────
+
+// Template panel toggle
+const templateToggleBtn = document.getElementById("template-toggle-btn");
+const templatePanel     = document.getElementById("template-panel");
+if (templateToggleBtn && templatePanel) {
+    templateToggleBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const open = templatePanel.classList.toggle("hidden");
+        if (!open) renderTemplatePanel();
+    });
+    document.addEventListener("click", (e) => {
+        if (!templatePanel.classList.contains("hidden") &&
+            !templatePanel.contains(e.target) &&
+            e.target !== templateToggleBtn) {
+            templatePanel.classList.add("hidden");
+        }
+    });
+}
+
+// Save as template
+const saveTemplateBtn = document.getElementById("save-template-btn");
+if (saveTemplateBtn) saveTemplateBtn.addEventListener("click", saveAsTemplate);
+
 addBtn.addEventListener("click", addTask);
 taskInput.addEventListener("keypress", (e) => { if (e.key === "Enter") addTask(); });
+
+// Estimate quick-pick buttons
+document.querySelectorAll(".estimate-quick-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+        const mins = btn.dataset.mins;
+        if (taskEstimateInput) {
+            taskEstimateInput.value = mins;
+            document.querySelectorAll(".estimate-quick-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+        }
+    });
+});
+if (taskEstimateInput) {
+    taskEstimateInput.addEventListener("input", () => {
+        document.querySelectorAll(".estimate-quick-btn").forEach(b => b.classList.remove("active"));
+    });
+}
+
+// Task filter listeners
+document.getElementById('filter-search').addEventListener('input', (e) => {
+    taskFilterText = e.target.value.trim();
+    renderTasks();
+});
+document.getElementById('filter-category').addEventListener('change', (e) => {
+    taskFilterCategory = e.target.value;
+    renderTasks();
+});
+document.getElementById('filter-status').addEventListener('change', (e) => {
+    taskFilterStatus = e.target.value;
+    renderTasks();
+});
+document.getElementById('filter-clear').addEventListener('click', () => {
+    taskFilterText = '';
+    taskFilterCategory = 'all';
+    taskFilterStatus = 'active';
+    document.getElementById('filter-search').value = '';
+    document.getElementById('filter-category').value = 'all';
+    document.getElementById('filter-status').value = 'active';
+    renderTasks();
+});
+// Weekly report dismiss
+document.getElementById("wr-dismiss-btn").addEventListener("click", () => {
+    const modal = document.getElementById("weekly-report-modal");
+    modal.classList.remove("wr-visible");
+    modal.addEventListener("transitionend", () => modal.classList.add("hidden"), { once: true });
+});
 signupBtn.addEventListener("click", signup);
 loginBtn.addEventListener("click", login);
 logoutBtn.addEventListener("click", logout);
@@ -365,10 +1211,9 @@ addEpicBtn.addEventListener("click", addEpic);
 addSubtaskBtn.addEventListener("click", addSubtask);
 planEpicBtn.addEventListener("click", planEpic);
 saveProfileBtn.addEventListener("click", saveProfile);
+document.getElementById("create-challenge").addEventListener("click", addChallenge);
 document.getElementById("hof-add").addEventListener("click", addHofManual);
-document.getElementById("hof-ai").addEventListener("click", () => {
-    authMessage.innerText = "AI Tokens are a Pro feature.";
-});
+document.getElementById("hof-ai").addEventListener("click", addHofAI);
 
 // ─── Storage Adapters ─────────────────────────────────────────────────────────
 function createStorageAdapter(cfg) {
@@ -445,23 +1290,171 @@ function normalizeState(loaded) {
     const profile = loaded.profile || {};
     const stats = loaded.stats || {};
     const meta = loaded.meta || {};
+    // Normalize loot — preserve inventory plus new effect-state fields
+    const loadedLoot = loaded.loot || {};
+    const loadedEquipped = (loadedLoot.equipped && typeof loadedLoot.equipped === 'object') ? loadedLoot.equipped : {};
+    const loot = {
+        inventory:   Array.isArray(loadedLoot.inventory) ? loadedLoot.inventory : [],
+        activeBoost:  loadedLoot.activeBoost  ?? null,
+        streakShield: loadedLoot.streakShield ?? false,
+        focusBonus:   loadedLoot.focusBonus   ?? 0,
+        equipped: {
+            weapon:     loadedEquipped.weapon     ?? null,
+            armor:      loadedEquipped.armor      ?? null,
+            accessory:  loadedEquipped.accessory  ?? null,
+            shipModule: loadedEquipped.shipModule ?? null,
+        },
+    };
     return {
         version: STATE_VERSION,
-        meta: { lastModified: meta.lastModified ?? null, lastSync: meta.lastSync ?? null, conflict: meta.conflict ?? false },
-        profile: { xp: profile.xp ?? 0, level: profile.level ?? 1, xpPerTask: profile.xpPerTask ?? 20, streakDays: profile.streakDays ?? 0, lastCompletedDate: profile.lastCompletedDate ?? null, loginDays: Array.isArray(profile.loginDays) ? profile.loginDays : [] },
+        meta: { lastModified: meta.lastModified ?? null, lastSync: meta.lastSync ?? null, conflict: meta.conflict ?? false, lastWeeklyReport: meta.lastWeeklyReport ?? null, lastLoginReward: meta.lastLoginReward ?? null },
+        profile: { xp: profile.xp ?? 0, level: profile.level ?? 1, xpPerTask: profile.xpPerTask ?? 20, streakDays: profile.streakDays ?? 0, lastCompletedDate: profile.lastCompletedDate ?? null, loginDays: Array.isArray(profile.loginDays) ? profile.loginDays : [], class: profile.class ?? null, prestige: profile.prestige ?? 0, prestigeMultiplier: profile.prestigeMultiplier ?? 1.0 },
         stats: { completionsByCategory: stats.completionsByCategory || {}, completionsByDifficulty: stats.completionsByDifficulty || {}, avgCompletionMs: stats.avgCompletionMs ?? 0, totalCompletions: stats.totalCompletions ?? 0 },
         tasks: Array.isArray(loaded.tasks) ? loaded.tasks : [],
         epics: Array.isArray(loaded.epics) ? loaded.epics : [],
         achievements: { unlocked: loaded.achievements?.unlocked || [] },
         hallOfFame: Array.isArray(loaded.hallOfFame) ? loaded.hallOfFame : [],
-        publicProfile: { displayName: loaded.publicProfile?.displayName || "", tagline: loaded.publicProfile?.tagline || "", isPublic: loaded.publicProfile?.isPublic || false }
+        publicProfile: { displayName: loaded.publicProfile?.displayName || "", tagline: loaded.publicProfile?.tagline || "", isPublic: loaded.publicProfile?.isPublic || false },
+        // Feature module state — pass through from saved data, falling back to defaults
+        habits:  Array.isArray(loaded.habits) ? loaded.habits : [],
+        focus:   loaded.focus && Array.isArray(loaded.focus.sessions) ? loaded.focus : { sessions: [] },
+        quests:  loaded.quests || { date: null, list: [] },
+        boss:    loaded.boss   || { weekId: null, title: "", hp: 0, maxHp: 100, defeated: false, rewardClaimed: false },
+        loot,
+        mood:    Array.isArray(loaded.mood) ? loaded.mood : [],
+        skills:  loaded.skills || {
+            health:   { xp: 0, level: 1 },
+            work:     { xp: 0, level: 1 },
+            learning: { xp: 0, level: 1 },
+            finance:  { xp: 0, level: 1 },
+            life:     { xp: 0, level: 1 }
+        },
+        challenges: Array.isArray(loaded.challenges) ? loaded.challenges : [],
+        taskTemplates: Array.isArray(loaded.taskTemplates) ? loaded.taskTemplates : [],
+        crew: Array.isArray(loaded.crew) ? loaded.crew : []
     };
+}
+
+// ─── Task Templates ───────────────────────────────────────────────────────────
+const BUILTIN_TEMPLATES = [
+    { id: "tpl_morning",    name: "Morning Routine",     text: "Morning Routine",     category: "life",     difficulty: "easy",   priority: "normal", estimateMins: 30  },
+    { id: "tpl_deepwork",   name: "Deep Work Session",   text: "Deep Work Session",   category: "work",     difficulty: "hard",   priority: "high",   estimateMins: 120 },
+    { id: "tpl_wklyreview", name: "Weekly Review",       text: "Weekly Review",       category: "work",     difficulty: "medium", priority: "normal", estimateMins: 60  },
+    { id: "tpl_exercise",   name: "Exercise",            text: "Exercise",            category: "health",   difficulty: "medium", priority: "normal", estimateMins: 45  },
+    { id: "tpl_read",       name: "Read for 30 mins",    text: "Read for 30 mins",    category: "learning", difficulty: "easy",   priority: "low",    estimateMins: 30  },
+    { id: "tpl_budget",     name: "Budget Check",        text: "Budget Check",        category: "finance",  difficulty: "easy",   priority: "normal", estimateMins: 20  },
+];
+
+function applyTemplate(tpl) {
+    taskInput.value           = tpl.text;
+    categorySelect.value      = tpl.category;
+    difficultySelect.value    = tpl.difficulty;
+    prioritySelect.value      = tpl.priority;
+    if (taskEstimateInput) {
+        taskEstimateInput.value = tpl.estimateMins || "";
+        document.querySelectorAll(".estimate-quick-btn").forEach(b => {
+            b.classList.toggle("active", parseInt(b.dataset.mins, 10) === tpl.estimateMins);
+        });
+    }
+    // close panel
+    const panel = document.getElementById("template-panel");
+    if (panel) panel.classList.add("hidden");
+    taskInput.focus();
+}
+
+function saveAsTemplate() {
+    const name = (prompt("Template name:") || "").trim();
+    if (!name) return;
+    const rawEstimate = taskEstimateInput ? parseInt(taskEstimateInput.value, 10) : NaN;
+    const tpl = {
+        id: `utpl_${Date.now()}`,
+        name,
+        text:         taskInput.value.trim() || name,
+        category:     categorySelect.value,
+        difficulty:   difficultySelect.value,
+        priority:     prioritySelect.value,
+        estimateMins: (!isNaN(rawEstimate) && rawEstimate > 0) ? rawEstimate : null
+    };
+    if (!Array.isArray(state.taskTemplates)) state.taskTemplates = [];
+    state.taskTemplates.push(tpl);
+    touchState();
+    persistAndRender();
+    renderTemplatePanel();
+}
+
+function deleteUserTemplate(id) {
+    if (!Array.isArray(state.taskTemplates)) return;
+    state.taskTemplates = state.taskTemplates.filter(t => t.id !== id);
+    touchState();
+    persistAndRender();
+    renderTemplatePanel();
+}
+
+function renderTemplatePanel() {
+    const panel = document.getElementById("template-panel");
+    if (!panel) return;
+    const list = panel.querySelector(".template-list");
+    if (!list) return;
+    list.innerHTML = "";
+
+    const userTemplates = Array.isArray(state.taskTemplates) ? state.taskTemplates : [];
+    const allTemplates = [...BUILTIN_TEMPLATES, ...userTemplates];
+
+    if (allTemplates.length === 0) {
+        list.innerHTML = '<p class="template-empty">No templates yet.</p>';
+        return;
+    }
+
+    if (BUILTIN_TEMPLATES.length) {
+        const label = document.createElement("div");
+        label.className = "template-group-label";
+        label.textContent = "Built-in";
+        list.appendChild(label);
+        BUILTIN_TEMPLATES.forEach(tpl => {
+            list.appendChild(buildTemplateRow(tpl, false));
+        });
+    }
+
+    if (userTemplates.length) {
+        const label = document.createElement("div");
+        label.className = "template-group-label";
+        label.textContent = "Saved";
+        list.appendChild(label);
+        userTemplates.forEach(tpl => {
+            list.appendChild(buildTemplateRow(tpl, true));
+        });
+    }
+}
+
+function buildTemplateRow(tpl, deletable) {
+    const row = document.createElement("div");
+    row.className = "template-row";
+
+    const info = document.createElement("button");
+    info.className = "template-apply-btn";
+    const mins = tpl.estimateMins;
+    const timeStr = mins ? (mins >= 60 ? `${mins / 60}h` : `${mins}m`) : "";
+    info.innerHTML = `<span class="template-name">${tpl.name}</span><span class="template-meta">${tpl.category} · ${tpl.difficulty} · ${tpl.priority}${timeStr ? " · " + timeStr : ""}</span>`;
+    info.addEventListener("click", () => applyTemplate(tpl));
+    row.appendChild(info);
+
+    if (deletable) {
+        const del = document.createElement("button");
+        del.className = "template-delete-btn";
+        del.title = "Delete template";
+        del.textContent = "×";
+        del.addEventListener("click", (e) => { e.stopPropagation(); deleteUserTemplate(tpl.id); });
+        row.appendChild(del);
+    }
+
+    return row;
 }
 
 // ─── Render ───────────────────────────────────────────────────────────────────
 function render() {
     renderTasks();
     renderHud();
+    renderEventBanner();
     renderInsights();
     renderConflictBanner();
     renderAchievements();
@@ -469,25 +1462,293 @@ function render() {
     renderEpics();
     renderProfilePreview();
     renderSimilarUsers();
+    renderChallenges();
+    renderCrewSection();
     // Feature module renders
     window.APP.renderHooks.forEach(fn => { try { fn(); } catch(e) { console.warn("render hook error", e); } });
 }
 
+function getDueDateStatus(dueDate) {
+    if (!dueDate) return null;
+    const today = new Date().toISOString().slice(0, 10);
+    if (dueDate < today) return "overdue";
+    if (dueDate === today) return "today";
+    return "future";
+}
+
+function formatEstimate(mins) {
+    if (!mins || mins <= 0) return '';
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h > 0 && m > 0) return `${h}h ${m}m`;
+    if (h > 0) return `${h}h`;
+    return `${m}m`;
+}
+
+function renderDueDateLabel(dueDate) {
+    if (!dueDate) return "";
+    const status = getDueDateStatus(dueDate);
+    const formatted = new Date(dueDate + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    if (status === "overdue") {
+        return `<span class="task-due-label task-due-overdue">Overdue · ${formatted}</span>`;
+    } else if (status === "today") {
+        return `<span class="task-due-label task-due-today">Due today · ${formatted}</span>`;
+    } else {
+        return `<span class="task-due-label">Due ${formatted}</span>`;
+    }
+}
+
+function dueSortKey(task) {
+    if (!task.dueDate) return 3;
+    const status = getDueDateStatus(task.dueDate);
+    if (status === "overdue") return 0;
+    if (status === "today") return 1;
+    return 2;
+}
+
 function renderTasks() {
     taskList.innerHTML = "";
-    const activeTasks = state.tasks.filter((t) => t.status === "active");
-    activeTasks.forEach((task) => {
+
+    // Apply status filter
+    let pool = state.tasks.slice();
+    if (taskFilterStatus === 'active')    pool = pool.filter(t => t.status === 'active');
+    else if (taskFilterStatus === 'completed') pool = pool.filter(t => t.status === 'completed');
+
+    const totalInStatus = pool.length;
+
+    // Apply category filter
+    if (taskFilterCategory !== 'all') pool = pool.filter(t => t.category === taskFilterCategory);
+
+    // Apply text search
+    if (taskFilterText) {
+        const q = taskFilterText.toLowerCase();
+        pool = pool.filter(t => t.text.toLowerCase().includes(q));
+    }
+
+    // Sort active tasks by due date; completed tasks by completion time (newest first)
+    if (taskFilterStatus !== 'completed') {
+        pool.sort((a, b) => dueSortKey(a) - dueSortKey(b));
+    }
+
+    const visibleCount = pool.length;
+    const totalAll = state.tasks.length;
+
+    // Update count label
+    const countEl = document.getElementById('filter-count');
+    if (countEl) {
+        const isFiltered = taskFilterText || taskFilterCategory !== 'all' || taskFilterStatus !== 'active';
+        countEl.textContent = isFiltered
+            ? `Showing ${visibleCount} of ${totalAll} missions`
+            : `${visibleCount} mission${visibleCount !== 1 ? 's' : ''}`;
+    }
+
+    // Show/hide clear button
+    const clearBtn = document.getElementById('filter-clear');
+    if (clearBtn) {
+        const hasActiveFilter = taskFilterText || taskFilterCategory !== 'all' || taskFilterStatus !== 'active';
+        clearBtn.classList.toggle('hidden', !hasActiveFilter);
+    }
+
+    pool.forEach((task) => {
         const li = document.createElement("li");
         li.dataset.taskId = task.id;
+        const isDone = task.status === 'completed';
+
+        // Subtask progress helpers (only for active tasks with subtasks)
+        const subs = (!isDone && task.subtasks && task.subtasks.length > 0) ? task.subtasks : [];
+        const subDone = subs.filter(s => s.done).length;
+        const subTotal = subs.length;
+        const allSubsDone = subTotal > 0 && subDone === subTotal;
+        const progressBadge = subTotal > 0
+            ? `<span class="task-sub-progress${allSubsDone ? ' task-sub-progress--all' : ''}">${subDone}/${subTotal}</span>`
+            : '';
+
         li.innerHTML = `
-            <div class="task-content">
-                <span class="task-text">${task.text}</span>
-                <span class="task-meta">${task.category} · ${task.difficulty} · ${task.priority}</span>
+            <div class="task-main-row">
+                <div class="task-content">
+                    ${!isDone && subTotal > 0 ? `<button class="task-expand-btn" title="Toggle subtasks">▶</button>` : ''}
+                    <div class="task-text-block">
+                        <span class="task-text"${isDone ? ' style="opacity:0.5;text-decoration:line-through"' : ''}>${task.text}</span>
+                        <span class="task-meta">${task.category} · ${task.difficulty} · ${task.priority}${subTotal > 0 ? ' · ' : ''}${progressBadge}</span>
+                        ${task.recur && task.recur !== 'none' ? `<span class="task-recur-badge">↻ ${task.recur.charAt(0).toUpperCase() + task.recur.slice(1)}</span>` : ''}
+                        ${task.estimateMins ? `<span class="task-estimate-badge">⏱ ${formatEstimate(task.estimateMins)}</span>` : ''}
+                        ${renderDueDateLabel(task.dueDate)}
+                    </div>
+                </div>
+                <div class="task-actions">
+                    ${isDone ? '' : '<button class="edit-btn" title="Edit task">✎</button>'}
+                    ${isDone ? '' : `<button class="delete-btn${allSubsDone ? ' delete-btn--glow' : ''}" title="Mark complete">✓</button>`}
+                </div>
             </div>
+            ${!isDone ? `<div class="task-subtasks hidden"></div>` : ''}
+        `;
+
+        if (!isDone) {
+            const deleteBtn = li.querySelector(".delete-btn");
+            deleteBtn.addEventListener("click", () => completeTask(task.id));
+            li.querySelector(".edit-btn").addEventListener("click", () => startInlineEdit(task, li));
+
+            // Expand/collapse toggle
+            const expandBtn = li.querySelector(".task-expand-btn");
+            const subtasksPanel = li.querySelector(".task-subtasks");
+            if (expandBtn && subtasksPanel) {
+                expandBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    const isOpen = !subtasksPanel.classList.contains("hidden");
+                    if (isOpen) {
+                        subtasksPanel.classList.add("hidden");
+                        expandBtn.textContent = "▶";
+                    } else {
+                        renderSubtasksPanel(task, subtasksPanel, deleteBtn);
+                        subtasksPanel.classList.remove("hidden");
+                        expandBtn.textContent = "▼";
+                    }
+                });
+            }
+
+            // Also add a "no subtasks yet" expand via a dedicated add-subtask inline button
+            // Always render the subtasks panel stub with the add row even if subTotal === 0
+            // We render it lazily on expand; but we need an expand toggle even when no subs exist
+            if (!expandBtn) {
+                // No subtasks yet — inject a lightweight expand toggle into the task-content
+                // so user can click it to open the add-subtask row
+                const contentEl = li.querySelector(".task-content");
+                const toggleBtn = document.createElement("button");
+                toggleBtn.className = "task-expand-btn task-expand-btn--empty";
+                toggleBtn.title = "Add subtasks";
+                toggleBtn.textContent = "▶";
+                contentEl.insertBefore(toggleBtn, contentEl.firstChild);
+                if (subtasksPanel) {
+                    toggleBtn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        const isOpen = !subtasksPanel.classList.contains("hidden");
+                        if (isOpen) {
+                            subtasksPanel.classList.add("hidden");
+                            toggleBtn.textContent = "▶";
+                        } else {
+                            renderSubtasksPanel(task, subtasksPanel, deleteBtn);
+                            subtasksPanel.classList.remove("hidden");
+                            toggleBtn.textContent = "▼";
+                        }
+                    });
+                }
+            }
+        }
+        taskList.appendChild(li);
+    });
+}
+
+function renderSubtasksPanel(task, panel, completeBtn) {
+    if (!task.subtasks) task.subtasks = [];
+    panel.innerHTML = "";
+
+    // Render existing subtask items
+    task.subtasks.forEach((sub) => {
+        const row = document.createElement("div");
+        row.className = "task-subtask-item";
+        row.innerHTML = `
+            <input type="checkbox" class="task-subtask-checkbox" ${sub.done ? 'checked' : ''}>
+            <span class="task-subtask-text${sub.done ? ' task-subtask-text--done' : ''}">${sub.text}</span>
+        `;
+        const cb = row.querySelector(".task-subtask-checkbox");
+        cb.addEventListener("change", () => {
+            sub.done = cb.checked;
+            touchState();
+            persistAndRender();
+        });
+        panel.appendChild(row);
+    });
+
+    // Add-subtask row
+    const addRow = document.createElement("div");
+    addRow.className = "task-subtask-add";
+    addRow.innerHTML = `
+        <input type="text" class="task-subtask-input" placeholder="New subtask…" maxlength="200">
+        <button class="task-subtask-add-btn" title="Add subtask">+</button>
+    `;
+    const subInput = addRow.querySelector(".task-subtask-input");
+    const addBtn = addRow.querySelector(".task-subtask-add-btn");
+
+    function addSubtask() {
+        const text = subInput.value.trim();
+        if (!text) return;
+        if (!task.subtasks) task.subtasks = [];
+        task.subtasks.push({
+            id: `tsub_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            text,
+            done: false
+        });
+        touchState();
+        persistAndRender();
+    }
+
+    addBtn.addEventListener("click", addSubtask);
+    subInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") addSubtask();
+    });
+
+    panel.appendChild(addRow);
+
+    // Update complete button glow state
+    if (completeBtn) {
+        const allDone = task.subtasks.length > 0 && task.subtasks.every(s => s.done);
+        completeBtn.classList.toggle("delete-btn--glow", allDone);
+    }
+}
+
+function startInlineEdit(task, li) {
+    // Prevent double-editing
+    if (li.classList.contains("editing")) return;
+    li.classList.add("editing");
+
+    const contentEl = li.querySelector(".task-content");
+    const textEl = li.querySelector(".task-text");
+    const actionsEl = li.querySelector(".task-actions");
+
+    const originalText = task.text;
+
+    // Replace task text span with an input
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = originalText;
+    input.className = "task-edit-input";
+    textEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    // Replace action buttons with save/cancel
+    actionsEl.innerHTML = `
+        <button class="edit-save-btn" title="Save">✓</button>
+        <button class="edit-cancel-btn" title="Cancel">✕</button>
+    `;
+
+    function saveEdit() {
+        const newText = input.value.trim();
+        if (newText && newText !== originalText) {
+            task.text = newText;
+            touchState();
+            persistAndRender();
+        } else {
+            cancelEdit();
+        }
+    }
+
+    function cancelEdit() {
+        li.classList.remove("editing");
+        input.replaceWith(textEl);
+        actionsEl.innerHTML = `
+            <button class="edit-btn" title="Edit task">✎</button>
             <button class="delete-btn" title="Mark complete">✓</button>
         `;
-        li.querySelector(".delete-btn").addEventListener("click", () => completeTask(task.id));
-        taskList.appendChild(li);
+        actionsEl.querySelector(".delete-btn").addEventListener("click", () => completeTask(task.id));
+        actionsEl.querySelector(".edit-btn").addEventListener("click", () => startInlineEdit(task, li));
+    }
+
+    actionsEl.querySelector(".edit-save-btn").addEventListener("click", saveEdit);
+    actionsEl.querySelector(".edit-cancel-btn").addEventListener("click", cancelEdit);
+    input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") saveEdit();
+        if (e.key === "Escape") cancelEdit();
     });
 }
 
@@ -1383,6 +2644,97 @@ function renderShip(level) {
     frame();
 }
 
+// ─── Productivity Score ────────────────────────────────────────────────────────
+function computeProductivityScore(s, referenceDate) {
+    // referenceDate: Date object for "today" (defaults to now); used so we can
+    // compute last-week's score by shifting the reference back 7 days.
+    const now = referenceDate || new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+
+    // Derive the Monday of the week containing `now`
+    function getMondayOf(d) {
+        const day = d.getDay() || 7; // 1=Mon … 7=Sun
+        const m = new Date(d);
+        m.setDate(m.getDate() - (day - 1));
+        m.setHours(0, 0, 0, 0);
+        return m;
+    }
+
+    const weekStart = getMondayOf(now);
+    const weekEnd   = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    weekEnd.setHours(23, 59, 59, 999);
+
+    // ── Streak (20%) ──────────────────────────────────────────────────────────
+    const streakDays = s.profile ? (s.profile.streakDays || 0) : 0;
+    const streakScore = Math.min(streakDays / 14, 1) * 100;
+
+    // ── Task completion rate this week (30%) ──────────────────────────────────
+    const tasks = Array.isArray(s.tasks) ? s.tasks : [];
+    const tasksCreatedThisWeek = tasks.filter(t => {
+        if (!t.createdAt) return false;
+        const d = new Date(t.createdAt);
+        return d >= weekStart && d <= weekEnd;
+    });
+    const tasksCompletedThisWeek = tasks.filter(t => {
+        if (t.status !== "completed" || !t.completedAt) return false;
+        const d = new Date(t.completedAt);
+        return d >= weekStart && d <= weekEnd;
+    });
+    const taskScore = (tasksCompletedThisWeek.length / Math.max(tasksCreatedThisWeek.length, 1)) * 100;
+
+    // ── Habit rate today (20%) ────────────────────────────────────────────────
+    const habits = Array.isArray(s.habits) ? s.habits : [];
+    const habitsCompletedToday = habits.filter(h =>
+        Array.isArray(h.completedDates) && h.completedDates.includes(todayStr)
+    ).length;
+    const habitScore = (habitsCompletedToday / Math.max(habits.length, 1)) * 100;
+
+    // ── Focus sessions this week (15%) ────────────────────────────────────────
+    const sessions = (s.focus && Array.isArray(s.focus.sessions)) ? s.focus.sessions : [];
+    const focusThisWeek = sessions.filter(sess => {
+        if (!sess.date) return false;
+        const d = new Date(sess.date);
+        return d >= weekStart && d <= weekEnd;
+    }).length;
+    const focusScore = Math.min(focusThisWeek / 5, 1) * 100;
+
+    // ── Mood average this week (15%) ──────────────────────────────────────────
+    const moodEntries = Array.isArray(s.mood) ? s.mood : [];
+    const moodThisWeek = moodEntries.filter(e => {
+        if (!e.date) return false;
+        return e.date >= weekStart.toISOString().slice(0, 10) && e.date <= weekEnd.toISOString().slice(0, 10);
+    });
+    const moodScore = moodThisWeek.length > 0
+        ? (moodThisWeek.reduce((sum, e) => sum + (e.energy || 0), 0) / moodThisWeek.length) / 5 * 100
+        : 50;
+
+    // ── Weighted blend ────────────────────────────────────────────────────────
+    const score = Math.round(
+        streakScore * 0.20 +
+        taskScore   * 0.30 +
+        habitScore  * 0.20 +
+        focusScore  * 0.15 +
+        moodScore   * 0.15
+    );
+
+    return {
+        score: Math.min(100, Math.max(0, score)),
+        breakdown: { streakScore, taskScore, habitScore, focusScore, moodScore }
+    };
+}
+
+function getProductivityTrend(s) {
+    const thisWeek = computeProductivityScore(s);
+    // Compute last week: shift reference date back 7 days
+    const lastWeekRef = new Date();
+    lastWeekRef.setDate(lastWeekRef.getDate() - 7);
+    const lastWeek = computeProductivityScore(s, lastWeekRef);
+    const delta = thisWeek.score - lastWeek.score;
+    const trend = delta > 3 ? 'up' : delta < -3 ? 'down' : 'same';
+    return { score: thisWeek.score, trend, breakdown: thisWeek.breakdown };
+}
+
 function renderHud() {
     levelText.innerText = state.profile.level;
     const xpPct = Math.min(100, Math.max(0, state.profile.xp));
@@ -1394,17 +2746,365 @@ function renderHud() {
     if (el("total-completions")) el("total-completions").textContent = state.stats.totalCompletions;
     if (el("active-tasks-count")) el("active-tasks-count").textContent = state.tasks.filter((t) => t.status === "active").length;
 
+    // Productivity Score
+    const psEl = el("productivity-score");
+    if (psEl) {
+        const { score, trend } = getProductivityTrend(state);
+        const numEl   = psEl.querySelector(".productivity-score-number");
+        const trendEl = psEl.querySelector(".productivity-score-trend");
+        if (numEl) numEl.textContent = score;
+        if (trendEl) {
+            const arrows = { up: '↑', down: '↓', same: '→' };
+            trendEl.textContent = arrows[trend] || '→';
+            trendEl.dataset.trend = trend;
+        }
+    }
+
     renderShip(state.profile.level);
+
+    // Class badge
+    const classBadgeEl = document.getElementById('class-badge');
+    if (classBadgeEl) {
+        const classInfo = CLASS_DEFINITIONS[state.profile.class];
+        if (classInfo) {
+            classBadgeEl.textContent = `${classInfo.emoji} ${classInfo.name}`;
+            classBadgeEl.classList.remove('hidden');
+        } else {
+            classBadgeEl.classList.add('hidden');
+        }
+    }
+
+    // Prestige stars
+    const prestigeStarsEl = el('prestige-stars');
+    if (prestigeStarsEl) {
+        const count = state.profile.prestige ?? 0;
+        if (count > 0) {
+            prestigeStarsEl.textContent = '⭐'.repeat(Math.min(count, 10)) + (count > 10 ? ` ×${count}` : '');
+            prestigeStarsEl.classList.remove('hidden');
+        } else {
+            prestigeStarsEl.classList.add('hidden');
+        }
+    }
+
+    // Prestige button visibility
+    const prestigeBtn = el('prestige-btn');
+    if (prestigeBtn) {
+        prestigeBtn.classList.toggle('hidden', state.profile.level < 20);
+    }
+}
+
+// ─── Mood Insights ────────────────────────────────────────────────────────────
+function getMoodInsights(appState) {
+    const entries = Array.isArray(appState.mood) ? appState.mood : [];
+    if (entries.length === 0) {
+        return ["Log your mood daily to unlock energy insights."];
+    }
+
+    // Sort ascending by date, take last 14 entries
+    const sorted = [...entries]
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .slice(-14);
+
+    if (sorted.length < 2) {
+        return ["Keep checking in — more data unlocks personalised energy insights."];
+    }
+
+    const insights = [];
+
+    // ── Insight 1: energy trend over last 7 days ──────────────────────────────
+    const last7 = sorted.slice(-7);
+    if (last7.length >= 3) {
+        const avg7 = last7.reduce((s, e) => s + e.energy, 0) / last7.length;
+
+        // Split into first half / second half to detect trend direction
+        const half = Math.floor(last7.length / 2);
+        const firstHalf  = last7.slice(0, half);
+        const secondHalf = last7.slice(-half);
+        const avgFirst  = firstHalf.reduce((s, e) => s + e.energy, 0) / firstHalf.length;
+        const avgSecond = secondHalf.reduce((s, e) => s + e.energy, 0) / secondHalf.length;
+        const delta = avgSecond - avgFirst;
+
+        if (avg7 >= 4) {
+            insights.push("Your energy has been high this week — great time to tackle hard tasks.");
+        } else if (avg7 <= 2) {
+            insights.push("Energy has been low this week — consider a lighter workload or a rest day.");
+        } else if (delta >= 0.6) {
+            insights.push("Mood trending up over the last 7 days — keep the momentum going.");
+        } else if (delta <= -0.6) {
+            insights.push("Mood trending down over the last 7 days — consider taking a break.");
+        } else {
+            insights.push(`Your average energy this week is ${avg7.toFixed(1)}/5 — steady and consistent.`);
+        }
+    }
+
+    // ── Insight 2: best days of the week ─────────────────────────────────────
+    const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const dayTotals = {};
+    const dayCounts = {};
+    sorted.forEach(e => {
+        const [year, month, day] = e.date.split('-').map(Number);
+        const dow = new Date(year, month - 1, day).getDay();
+        dayTotals[dow] = (dayTotals[dow] || 0) + e.energy;
+        dayCounts[dow] = (dayCounts[dow] || 0) + 1;
+    });
+
+    // Only consider days with at least 2 data points
+    const dayAvgs = Object.keys(dayCounts)
+        .filter(d => dayCounts[d] >= 2)
+        .map(d => ({ dow: Number(d), avg: dayTotals[d] / dayCounts[d] }))
+        .sort((a, b) => b.avg - a.avg);
+
+    if (dayAvgs.length >= 2) {
+        const best = dayAvgs.slice(0, 2).map(d => DAY_NAMES[d.dow]);
+        insights.push(`Your best days: ${best.join(" & ")} — schedule important tasks then.`);
+    } else if (dayAvgs.length === 1 && dayAvgs[0].avg >= 3.5) {
+        insights.push(`Your best day: ${DAY_NAMES[dayAvgs[0].dow]} — schedule important tasks then.`);
+    }
+
+    // ── Insight 3: task completion correlation with high energy ───────────────
+    // We need at least 5 paired data points (mood entry + tasks completed that day)
+    const completedTasks = (appState.tasks || []).filter(t => t.status === "completed" && t.completedAt);
+    if (completedTasks.length > 0 && sorted.length >= 5) {
+        // Count completions per date string
+        const tasksByDate = {};
+        completedTasks.forEach(t => {
+            const d = new Date(t.completedAt).toISOString().slice(0, 10);
+            tasksByDate[d] = (tasksByDate[d] || 0) + 1;
+        });
+
+        // Pair mood entries that have completion data
+        const paired = sorted.filter(e => tasksByDate[e.date] !== undefined);
+        if (paired.length >= 3) {
+            const highEnergy = paired.filter(e => e.energy >= 4);
+            const lowEnergy  = paired.filter(e => e.energy <= 2);
+            if (highEnergy.length >= 2 && lowEnergy.length >= 2) {
+                const avgHigh = highEnergy.reduce((s, e) => s + tasksByDate[e.date], 0) / highEnergy.length;
+                const avgLow  = lowEnergy.reduce((s, e)  => s + tasksByDate[e.date], 0) / lowEnergy.length;
+                if (avgLow > 0 && avgHigh / avgLow >= 1.5) {
+                    const multiplier = (avgHigh / avgLow).toFixed(1);
+                    insights.push(`You complete ${multiplier}x more tasks on high-energy days — energy is your superpower.`);
+                }
+            }
+        }
+    }
+
+    // Return at most 2 insights to keep the card concise
+    return insights.slice(0, 2);
+}
+
+// ─── Insights Engine ──────────────────────────────────────────────────────────
+// Returns an array of insight objects: { type, emoji, message }
+// type is one of: "warning" | "positive" | "info"
+function computeInsights(s) {
+    const insights = [];
+    const today = new Date().toISOString().slice(0, 10);
+    const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+
+    // ── Empty state ───────────────────────────────────────────────────────────
+    const allTasks = Array.isArray(s.tasks) ? s.tasks : [];
+    if (allTasks.length === 0) {
+        insights.push({ type: "info", emoji: "🚀", message: "Add your first mission to get started!" });
+        return insights;
+    }
+
+    // ── Streak risk ───────────────────────────────────────────────────────────
+    const streak = s.profile ? (s.profile.streakDays || 0) : 0;
+    if (streak > 0) {
+        const completedTasks = allTasks.filter(t => t.status === "completed" && t.completedAt);
+        const completedToday = completedTasks.some(t => t.completedAt.slice(0, 10) === today);
+        if (!completedToday) {
+            const currentHour = new Date().getHours();
+            if (currentHour >= 18) {
+                insights.push({
+                    type: "warning",
+                    emoji: "⚠️",
+                    message: `Your ${streak}-day streak ends at midnight — complete a mission now to keep it alive!`
+                });
+            } else {
+                insights.push({
+                    type: "warning",
+                    emoji: "⚠️",
+                    message: `Your ${streak}-day streak is at risk — complete a task today!`
+                });
+            }
+        }
+    }
+
+    // ── XP velocity (this week vs last week) ─────────────────────────────────
+    const completedWithXp = allTasks.filter(t => t.status === "completed" && t.completedAt && t.xpValue);
+    if (completedWithXp.length >= 2) {
+        const now = new Date();
+        // Start of this week (Monday)
+        const startOfThisWeek = new Date(now);
+        startOfThisWeek.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+        startOfThisWeek.setHours(0, 0, 0, 0);
+        const startOfLastWeek = new Date(startOfThisWeek);
+        startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
+
+        let thisWeekXp = 0;
+        let lastWeekXp = 0;
+        completedWithXp.forEach(t => {
+            const d = new Date(t.completedAt);
+            if (d >= startOfThisWeek) thisWeekXp += t.xpValue;
+            else if (d >= startOfLastWeek) lastWeekXp += t.xpValue;
+        });
+
+        if (lastWeekXp > 0 && thisWeekXp > 0) {
+            const pct = Math.round(((thisWeekXp - lastWeekXp) / lastWeekXp) * 100);
+            if (pct >= 10) {
+                insights.push({ type: "positive", emoji: "📈", message: `You earned ${pct}% more XP this week than last — great momentum!` });
+            } else if (pct <= -10) {
+                insights.push({ type: "warning", emoji: "📉", message: `XP slowing down — push through and complete more missions!` });
+            }
+        } else if (thisWeekXp > 0 && lastWeekXp === 0) {
+            insights.push({ type: "positive", emoji: "📈", message: `Great start this week — you've earned ${thisWeekXp} XP so far!` });
+        }
+    }
+
+    // ── Skill imbalance ───────────────────────────────────────────────────────
+    const skills = s.skills || {};
+    const skillEntries = Object.entries(skills); // [ [name, {xp, level}] ]
+    if (skillEntries.length >= 2) {
+        const levels = skillEntries.map(([, sk]) => sk.level || 1);
+        const maxLevel = Math.max(...levels);
+        const minLevel = Math.min(...levels);
+        if (maxLevel - minLevel >= 2) {
+            const leadSkill = skillEntries.find(([, sk]) => (sk.level || 1) === maxLevel);
+            const lagSkill  = skillEntries.find(([, sk]) => (sk.level || 1) === minLevel);
+            const capitalize = str => str.charAt(0).toUpperCase() + str.slice(1);
+            insights.push({
+                type: "info",
+                emoji: "⚖️",
+                message: `Your ${capitalize(leadSkill[0])} skill is racing ahead (Lv ${maxLevel}) — don't neglect ${capitalize(lagSkill[0])} (Lv ${minLevel})`
+            });
+        }
+    }
+
+    // ── Habit consistency ─────────────────────────────────────────────────────
+    const habits = Array.isArray(s.habits) ? s.habits : [];
+    if (habits.length > 0) {
+        const doneToday = habits.filter(h =>
+            Array.isArray(h.completedDates) && h.completedDates.includes(today)
+        ).length;
+        const total = habits.length;
+        if (doneToday === total) {
+            insights.push({ type: "positive", emoji: "💪", message: `All ${total} habit${total > 1 ? "s" : ""} done today — keep it up!` });
+        } else {
+            insights.push({ type: "info", emoji: "✅", message: `You've completed ${doneToday}/${total} habits today — keep going!` });
+        }
+    }
+
+    // ── Productive day pattern ────────────────────────────────────────────────
+    const completedWithDate = allTasks.filter(t => t.status === "completed" && t.completedAt);
+    if (completedWithDate.length >= 5) {
+        const dowCounts = {};
+        completedWithDate.forEach(t => {
+            const d = new Date(t.completedAt);
+            const dow = d.getDay();
+            dowCounts[dow] = (dowCounts[dow] || 0) + 1;
+        });
+        const bestDow = Object.entries(dowCounts).sort((a, b) => b[1] - a[1])[0];
+        if (bestDow) {
+            insights.push({
+                type: "info",
+                emoji: "📅",
+                message: `You're most productive on ${DAY_NAMES[Number(bestDow[0])]}s — schedule your hardest tasks then!`
+            });
+        }
+    }
+
+    // ── Level up proximity ────────────────────────────────────────────────────
+    const xp = s.profile ? (s.profile.xp || 0) : 0;
+    const level = s.profile ? (s.profile.level || 1) : 1;
+    const xpRemaining = 100 - xp;
+    if (xpRemaining <= 20 && xpRemaining > 0) {
+        insights.push({
+            type: "positive",
+            emoji: "⚡",
+            message: `You're ${xpRemaining} XP away from Level ${level + 1} — almost there!`
+        });
+    }
+
+    // ── Mood / energy insight (first one from getMoodInsights) ────────────────
+    const moodLines = getMoodInsights(s);
+    if (moodLines.length > 0 && !moodLines[0].startsWith("Log your mood")) {
+        insights.push({ type: "info", emoji: "🧠", message: moodLines[0] });
+    }
+
+    // ── Crew quips ────────────────────────────────────────────────────────────
+    const crewUnlocked = Array.isArray(s.crew) ? s.crew : [];
+    if (crewUnlocked.length > 0) {
+        // Pick a crew member quip based on day-of-week rotation
+        const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
+        const unlockedMembers = CREW_ROSTER.filter(m => crewUnlocked.includes(m.id));
+        const member = unlockedMembers[dayOfYear % unlockedMembers.length];
+        insights.push({ type: "crew", emoji: member.emoji, message: member.quip });
+    }
+
+    return insights.slice(0, 6);
+}
+
+function renderEventBanner() {
+    const banner = document.getElementById('event-banner');
+    if (!banner) return;
+    const event = getActiveEvent();
+    if (event) {
+        banner.querySelector('.event-banner-emoji').textContent  = event.emoji;
+        banner.querySelector('.event-banner-name').textContent   = event.name;
+        banner.querySelector('.event-banner-desc').textContent   = event.description;
+        banner.querySelector('.event-banner-bonus').textContent  = event.bonusText;
+        banner.classList.remove('hidden');
+    } else {
+        banner.classList.add('hidden');
+    }
 }
 
 function renderInsights() {
-    const topCategory = mostFrequentKey(state.stats.completionsByCategory);
-    const topDifficulty = mostFrequentKey(state.stats.completionsByDifficulty);
-    const avgMins = state.stats.avgCompletionMs ? Math.round(state.stats.avgCompletionMs / 60000) : 0;
-    recommendationsEl.innerText = topCategory
-        ? `Recommended: Schedule 1 ${topCategory} mission today.`
-        : "Recommended: Add your first mission and complete it.";
-    statsEl.innerText = `Top category: ${topCategory || "n/a"}  ·  Top difficulty: ${topDifficulty || "n/a"}  ·  Avg completion: ${avgMins} min`;
+    const cards = computeInsights(state);
+    const container = document.getElementById("insight-cards-container");
+    if (!container) return;
+
+    container.innerHTML = cards.map(insight => `
+        <div class="insight-card type-${insight.type}">
+            <span class="insight-card-emoji">${insight.emoji}</span>
+            <span class="insight-card-text">${insight.message}</span>
+        </div>
+    `).join("");
+}
+
+// ─── Streak Notification Permission ──────────────────────────────────────────
+function requestStreakNotificationPermission() {
+    if (!('Notification' in window)) return;
+    if (Notification.permission !== 'default') return;
+    if (localStorage.getItem('moonNotifAsked')) return;
+    localStorage.setItem('moonNotifAsked', '1');
+    Notification.requestPermission();
+}
+
+// ─── Streak Warning Notification ──────────────────────────────────────────────
+function checkStreakWarning() {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const streakDays = state.profile ? (state.profile.streakDays || 0) : 0;
+    if (streakDays === 0) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const currentHour = new Date().getHours();
+    if (currentHour < 18) return;
+
+    const notifKey = `moonStreakNotifSent-${today}`;
+    if (localStorage.getItem(notifKey)) return;
+
+    const allTasks = Array.isArray(state.tasks) ? state.tasks : [];
+    const completedToday = allTasks.some(
+        t => t.status === 'completed' && t.completedAt && t.completedAt.slice(0, 10) === today
+    );
+    if (completedToday) return;
+
+    localStorage.setItem(notifKey, '1');
+    new Notification('⚠️ Streak at Risk!', {
+        body: `Your ${streakDays}-day streak ends at midnight. Complete a mission to keep it alive!`,
+        icon: '/icon.svg'
+    });
 }
 
 function renderConflictBanner() {
@@ -1421,10 +3121,15 @@ function renderAchievements() {
     achievementsEl.innerHTML = "";
     const unlocked = new Set(state.achievements.unlocked);
     achievementCatalog.forEach((ach) => {
+        const isUnlocked = unlocked.has(ach.id);
+        const tier = ach.tier || "bronze";
         const card = document.createElement("div");
-        card.className = `achievement-card${unlocked.has(ach.id) ? "" : " locked"}`;
+        card.className = `achievement-card tier-${tier}${isUnlocked ? "" : " locked"}`;
         card.innerHTML = `
-            <div class="badge">${unlocked.has(ach.id) ? "✓ Unlocked" : "Locked"}</div>
+            <div class="achievement-tier-badges">
+                <span class="badge badge-tier-${tier}">${tier.charAt(0).toUpperCase() + tier.slice(1)}</span>
+                <span class="badge${isUnlocked ? " badge-unlocked" : " badge-locked"}">${isUnlocked ? "✓ Unlocked" : "Locked"}</span>
+            </div>
             <strong>${ach.title}</strong>
             <p style="font-size:13px;color:var(--text-secondary);margin-top:4px">${ach.desc}</p>
         `;
@@ -1439,10 +3144,11 @@ function renderHallOfFame() {
         return;
     }
     state.hallOfFame.forEach((token) => {
+        const rarityKey = (token.rarity || "Common").toLowerCase();
         const card = document.createElement("div");
-        card.className = "hall-card";
+        card.className = `hall-card rarity-${rarityKey}`;
         card.innerHTML = `
-            <span class="badge">${token.rarity}</span>
+            <span class="badge badge-${rarityKey}">${token.rarity}</span>
             <strong>${token.title}</strong>
             <p style="font-size:13px;color:var(--text-secondary);margin-top:4px">${token.description}</p>
             <div class="hud-sub" style="margin-top:8px">${new Date(token.earnedAt).toLocaleDateString()}</div>
@@ -1518,6 +3224,7 @@ function summarizeState(snapshot) {
 function addTask() {
     const text = taskInput.value.trim();
     if (!text) return;
+    const rawEstimate = taskEstimateInput ? parseInt(taskEstimateInput.value, 10) : NaN;
     const task = {
         id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         text,
@@ -1527,12 +3234,31 @@ function addTask() {
         status: "active",
         createdAt: new Date().toISOString(),
         completedAt: null,
-        xpValue: calcTaskXp(difficultySelect.value, prioritySelect.value)
+        xpValue: calcTaskXp(difficultySelect.value, prioritySelect.value),
+        dueDate: taskDueInput.value || null,
+        recur: taskRecurSelect ? taskRecurSelect.value : 'none',
+        estimateMins: (!isNaN(rawEstimate) && rawEstimate > 0) ? rawEstimate : null
     };
     state.tasks.push(task);
     taskInput.value = "";
+    taskDueInput.value = "";
+    if (taskRecurSelect) taskRecurSelect.value = 'none';
+    if (taskEstimateInput) {
+        taskEstimateInput.value = "";
+        document.querySelectorAll(".estimate-quick-btn").forEach(b => b.classList.remove("active"));
+    }
     touchState();
     persistAndRender();
+}
+
+// ─── Equipment Bonuses (delegates to loot module once loaded) ─────────────────
+function getEquipmentBonuses() {
+    // loot.js registers window.APP.getEquipmentBonuses after it loads.
+    // Provide a safe fallback for the case where it hasn't loaded yet.
+    if (typeof window.APP.getEquipmentBonuses === 'function') {
+        return window.APP.getEquipmentBonuses(state);
+    }
+    return { xpBonus: 1.0, lootRate: 0.15, streakShield: false, focusBonus: 0 };
 }
 
 function completeTask(taskId) {
@@ -1542,8 +3268,129 @@ function completeTask(taskId) {
     task.completedAt = new Date().toISOString();
     updateStats(task);
     updateStreak(task.completedAt);
-    gainXP(task.xpValue);
+
+    // Apply equipment passive XP bonus
+    const equipBonuses = getEquipmentBonuses();
+    let xpAmount = Math.round(task.xpValue * equipBonuses.xpBonus);
+
+    // Apply consumable XP boost if one is active (stacks on top of equipment bonus)
+    if (state.loot?.activeBoost?.type === 'xp2x') {
+        xpAmount = xpAmount * 2;
+        state.loot.activeBoost = null; // consume after one task
+    }
+
+    // ── Seasonal event bonuses ────────────────────────────────────────────────
+    const activeEvent = getActiveEvent();
+    let seasonalLootGuaranteed = false;
+    let seasonalLootBoostRate  = 0;
+    if (activeEvent) {
+        switch (activeEvent.type) {
+            case 'xp2x':
+                xpAmount = xpAmount * 2;
+                break;
+            case 'xp1_5x':
+                xpAmount = Math.round(xpAmount * 1.5);
+                break;
+            case 'loot_boost':
+                seasonalLootBoostRate = 0.60; // will override base drop chance
+                break;
+            case 'learning_boost':
+                if (task.category === 'learning') xpAmount = xpAmount * 2;
+                break;
+            case 'halloween':
+                xpAmount = Math.round(xpAmount * 1.2);
+                break;
+            case 'xmas':
+                xpAmount = xpAmount * 2;
+                seasonalLootGuaranteed = true;
+                break;
+        }
+    }
+
+    // ── Class bonuses ────────────────────────────────────────────────────────
+    const playerClass = state.profile.class;
+    let classBonus = 0;
+    if (playerClass === 'warrior' && task.difficulty === 'hard') {
+        classBonus = Math.round(xpAmount * 0.5);
+        showClassBonusToast('⚔️', 'Warrior', classBonus);
+    } else if (playerClass === 'mage' && (task.category === 'learning' || task.category === 'work')) {
+        classBonus = xpAmount; // double XP = +100%
+        showClassBonusToast('🔮', 'Mage', classBonus);
+    } else if (playerClass === 'rogue') {
+        const streakBlocks = Math.min(5, Math.floor(state.profile.streakDays / 7)); // max 5 blocks = +50%
+        if (streakBlocks > 0) {
+            classBonus = Math.round(xpAmount * streakBlocks * 0.1);
+            showClassBonusToast('🗡️', 'Rogue', classBonus);
+        }
+    } else if (playerClass === 'explorer') {
+        classBonus = Math.round(xpAmount * 0.15);
+        showClassBonusToast('🧭', 'Explorer', classBonus);
+        // +20% loot drop chance (stacks on top of equipment loot rate)
+        const baseDrop = equipBonuses.lootRate;
+        const explorerDrop = baseDrop + 0.20;
+        if (Math.random() < explorerDrop && state.loot && Array.isArray(state.loot.inventory)) {
+            const template = DAILY_REWARD_LOOT_TABLE[Math.floor(Math.random() * DAILY_REWARD_LOOT_TABLE.length)];
+            if (template) {
+                state.loot.inventory.push({
+                    id: 'loot_drop_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+                    name: template.name,
+                    emoji: template.emoji,
+                    rarity: template.rarity,
+                    desc: template.desc,
+                    earnedAt: new Date().toISOString(),
+                });
+            }
+        }
+    }
+    xpAmount += classBonus;
+
+    gainXP(xpAmount);
+
+    // ── Seasonal loot drops ───────────────────────────────────────────────────
+    if (state.loot && Array.isArray(state.loot.inventory)) {
+        let dropChance = equipBonuses.lootRate; // base drop chance (equipment-aware)
+        if (seasonalLootBoostRate > 0) dropChance = seasonalLootBoostRate;
+        if (seasonalLootGuaranteed || Math.random() < dropChance) {
+            const template = DAILY_REWARD_LOOT_TABLE[Math.floor(Math.random() * DAILY_REWARD_LOOT_TABLE.length)];
+            if (template) {
+                state.loot.inventory.push({
+                    id: 'loot_seasonal_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+                    name: template.name,
+                    emoji: template.emoji,
+                    rarity: template.rarity,
+                    desc: template.desc,
+                    earnedAt: new Date().toISOString(),
+                });
+            }
+        }
+    }
+
     checkAchievements();
+    checkChallenges();
+
+    // Recurrence: spawn a new task with an updated due date
+    if (task.recur && task.recur !== 'none') {
+        const offsets = { daily: 1, weekly: 7, monthly: 30 };
+        const daysAhead = offsets[task.recur] || 0;
+        const nextDate = new Date();
+        nextDate.setDate(nextDate.getDate() + daysAhead);
+        const nextDue = nextDate.toISOString().slice(0, 10);
+        const spawned = {
+            id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            text: task.text,
+            category: task.category,
+            difficulty: task.difficulty,
+            priority: task.priority,
+            recur: task.recur,
+            status: 'active',
+            createdAt: new Date().toISOString(),
+            completedAt: null,
+            xpValue: task.xpValue,
+            dueDate: nextDue
+        };
+        state.tasks.push(spawned);
+    }
+
     touchState();
     persistAndRender();
     // Fire task-complete hooks for feature modules
@@ -1588,13 +3435,203 @@ function completeEpic(epicId) {
 }
 
 function planEpic() {
-    if (!config.premium.aiPlanner) {
-        authMessage.innerText = "AI Planner is a Pro feature.";
+    // Remove any existing suggestion panel
+    const existing = document.getElementById("ai-plan-panel");
+    if (existing) { existing.remove(); return; }
+
+    // Determine source title: prefer selected epic, fall back to epic input
+    let title = "";
+    let sourceEpicId = selectedEpicId;
+    if (sourceEpicId) {
+        const sel = state.epics.find((e) => e.id === sourceEpicId);
+        if (sel) title = sel.title;
     }
+    if (!title) title = epicInput.value.trim();
+    if (!title) {
+        epicHint.innerText = "Type an epic name or select an epic first, then click AI Plan.";
+        return;
+    }
+
+    // Keyword → project type mapping
+    const RULES = [
+        {
+            keys: ["fitness","workout","gym","health","run","running","exercise","training"],
+            subtasks: [
+                "Set weekly schedule",
+                "Track starting metrics",
+                "Research proper form",
+                "Find accountability partner",
+                "Set 30-day milestone goal",
+                "Prepare equipment/gear"
+            ]
+        },
+        {
+            keys: ["learn","study","course","skill","book","read","reading","tutorial"],
+            subtasks: [
+                "Define learning objectives",
+                "Gather resources and materials",
+                "Create study schedule",
+                "Take notes and summarize",
+                "Practice with exercises",
+                "Test understanding with project"
+            ]
+        },
+        {
+            keys: ["build","create","develop","app","website","project","code","coding","software"],
+            subtasks: [
+                "Define requirements and scope",
+                "Design architecture/wireframe",
+                "Set up development environment",
+                "Build core functionality",
+                "Test and debug",
+                "Deploy and document"
+            ]
+        },
+        {
+            keys: ["business","launch","startup","product","market","marketing","monetize","sell"],
+            subtasks: [
+                "Validate the idea with research",
+                "Define target audience",
+                "Create MVP plan",
+                "Set revenue/growth goals",
+                "Plan marketing strategy",
+                "Set launch date milestone"
+            ]
+        },
+        {
+            keys: ["write","blog","book","essay","content","writing","article","novel"],
+            subtasks: [
+                "Outline structure and key points",
+                "Research and gather sources",
+                "Write first draft",
+                "Edit and revise",
+                "Get feedback from others",
+                "Finalize and publish"
+            ]
+        },
+        {
+            keys: ["move","relocate","travel","trip","vacation","journey"],
+            subtasks: [
+                "Research destination/location",
+                "Create budget and timeline",
+                "Handle logistics and booking",
+                "Prepare checklist of tasks",
+                "Notify relevant parties",
+                "Plan arrival/settlement steps"
+            ]
+        }
+    ];
+
+    const DEFAULT_SUBTASKS = [
+        "Define the goal clearly",
+        "Break into first milestones",
+        "Identify potential obstacles",
+        "Gather required resources",
+        "Set a timeline",
+        "Define success criteria"
+    ];
+
+    // Match keywords
+    const lower = title.toLowerCase();
+    let suggestions = DEFAULT_SUBTASKS;
+    for (const rule of RULES) {
+        if (rule.keys.some((k) => lower.includes(k))) {
+            suggestions = rule.subtasks;
+            break;
+        }
+    }
+
+    // Build the panel
+    const panel = document.createElement("div");
+    panel.id = "ai-plan-panel";
+    panel.className = "ai-plan-panel";
+
+    const heading = document.createElement("div");
+    heading.className = "ai-plan-heading";
+    heading.innerHTML = `<span class="ai-plan-title">✦ Suggested Subtasks</span><span class="ai-plan-for">for &ldquo;${title}&rdquo;</span>`;
+    panel.appendChild(heading);
+
+    const list = document.createElement("div");
+    list.className = "ai-plan-list";
+    suggestions.forEach((text) => {
+        const item = document.createElement("label");
+        item.className = "ai-plan-item";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = true;
+        cb.value = text;
+        const span = document.createElement("span");
+        span.textContent = text;
+        item.appendChild(cb);
+        item.appendChild(span);
+        list.appendChild(item);
+    });
+    panel.appendChild(list);
+
+    const footer = document.createElement("div");
+    footer.className = "ai-plan-footer";
+
+    const addBtn = document.createElement("button");
+    addBtn.className = "btn-primary";
+    addBtn.textContent = "Add Selected";
+    addBtn.addEventListener("click", () => {
+        const checked = [...list.querySelectorAll("input[type=checkbox]:checked")];
+        if (!checked.length) { panel.remove(); return; }
+
+        // If no epic is selected, try to create one from epicInput first
+        let targetId = sourceEpicId;
+        if (!targetId) {
+            const newTitle = epicInput.value.trim();
+            if (!newTitle) {
+                epicHint.innerText = "Select or create an epic first.";
+                return;
+            }
+            // Create a new epic inline
+            const newEpic = {
+                id: `epic_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                title: newTitle,
+                subtasks: [],
+                createdAt: new Date().toISOString(),
+                completedAt: null
+            };
+            state.epics.push(newEpic);
+            selectedEpicId = newEpic.id;
+            targetId = newEpic.id;
+            epicInput.value = "";
+        }
+
+        const epic = state.epics.find((e) => e.id === targetId);
+        if (!epic) return;
+
+        checked.forEach((cb) => {
+            epic.subtasks.push({
+                id: `sub_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                text: cb.value,
+                completed: false
+            });
+        });
+
+        epicHint.innerText = `Added ${checked.length} subtask${checked.length > 1 ? "s" : ""} to "${epic.title}".`;
+        touchState();
+        persistAndRender();
+        panel.remove();
+    });
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = "btn-ghost";
+    cancelBtn.textContent = "Cancel";
+    cancelBtn.addEventListener("click", () => panel.remove());
+
+    footer.appendChild(addBtn);
+    footer.appendChild(cancelBtn);
+    panel.appendChild(footer);
+
+    // Insert the panel right after the plan button's parent input-row
+    planEpicBtn.closest(".input-row").insertAdjacentElement("afterend", panel);
 }
 
 function addHallToken(epic) {
-    state.hallOfFame.push(generateAchievementToken(epic.title));
+    state.hallOfFame.push(generateAchievementToken(epic));
     touchState();
     persistAndRender();
 }
@@ -1602,18 +3639,182 @@ function addHallToken(epic) {
 function addHofManual() {
     const text = document.getElementById("hof-input").value.trim();
     if (!text) return;
-    state.hallOfFame.push(generateAchievementToken(text));
+    state.hallOfFame.push(generateManualToken(text));
     document.getElementById("hof-input").value = "";
     touchState();
     persistAndRender();
 }
 
-function generateAchievementToken(title) {
+async function addHofAI() {
+    const btn = document.getElementById("hof-ai");
+    const original = btn.textContent;
+    btn.textContent = "✦ Generating…";
+    btn.disabled = true;
+
+    // Build a context summary to feed the AI
+    const ctx = [
+        state.profile.level > 1 ? `Level ${state.profile.level}` : null,
+        state.profile.streakDays > 0 ? `${state.profile.streakDays}-day streak` : null,
+        state.stats?.totalCompletions ? `${state.stats.totalCompletions} missions completed` : null,
+        state.profile.class ? `Class: ${state.profile.class}` : null,
+    ].filter(Boolean).join(", ") || "a dedicated astronaut";
+
+    let token;
+    const authToken = config.storage.authToken;
+    if (authToken) {
+        try {
+            const res = await fetch(`${config.storage.baseUrl}/api/tokens/generate`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+                body: JSON.stringify({ title: ctx })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                token = { ...generateAIToken(), title: data.title, description: data.description };
+            }
+        } catch (_) {}
+    }
+    // Fallback to local generation if server call failed or user is offline
+    if (!token) token = generateAIToken();
+
+    state.hallOfFame.push(token);
+    touchState();
+    persistAndRender();
+
+    btn.textContent = "✓ Token minted!";
+    setTimeout(() => {
+        btn.textContent = original;
+        btn.disabled = false;
+    }, 2000);
+}
+
+function generateAIToken() {
+    const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+    const level       = state.profile.level      ?? 1;
+    const streak      = state.profile.streakDays ?? 0;
+    const xp          = state.profile.xp         ?? 0;
+    const completions = state.stats.totalCompletions ?? 0;
+    const focusSessions = (state.focus && Array.isArray(state.focus.sessions))
+        ? state.focus.sessions.length : 0;
+    const completedEpics = state.epics.filter((e) => e.completedAt).length;
+
+    // Find highest-level skill
+    const skillEntries = Object.entries(state.skills || {});
+    let topSkillName = null;
+    let topSkillLevel = 0;
+    for (const [name, sk] of skillEntries) {
+        if ((sk.level ?? 1) > topSkillLevel) {
+            topSkillLevel = sk.level ?? 1;
+            topSkillName  = name.charAt(0).toUpperCase() + name.slice(1);
+        }
+    }
+
+    // Determine rarity
+    let rarity = "Common";
+    if (streak >= 30 || completions >= 100) {
+        rarity = "Legendary";
+    } else if (level >= 10 || topSkillLevel >= 5) {
+        rarity = "Epic";
+    } else if (streak >= 14 || completions >= 50) {
+        rarity = "Rare";
+    }
+
+    // Pick the most impressive stat and build title + description
+    let title, description;
+
+    if (streak >= 30 || completions >= 100) {
+        // Legendary tier — pick whichever triggered it
+        if (streak >= 30) {
+            title       = pick(["Unbroken Chain", "Streak Sovereign", "The Persistent"]);
+            description = `Maintained a ${streak}-day streak. Discipline forged into identity.`;
+        } else {
+            title       = pick(["Mission Centurion", "The Executor", "Task Conqueror"]);
+            description = `Conquered ${completions} missions. Each one a brick in the foundation.`;
+        }
+    } else if (level >= 10) {
+        title       = pick(["Orbital Commander", "Star Navigator", "Void Walker"]);
+        description = `Reached Level ${level}, ascending beyond what most dare attempt.`;
+    } else if (topSkillLevel >= 5) {
+        const templates = [
+            `Master of ${topSkillName}`,
+            `${topSkillName} Adept`,
+            `The ${topSkillName} Architect`,
+        ];
+        title       = pick(templates);
+        description = `Leveled ${topSkillName} to ${topSkillLevel}. A specialist born from repetition.`;
+    } else if (streak >= 14) {
+        title       = pick(["Unbroken Chain", "Streak Sovereign", "The Persistent"]);
+        description = `Maintained a ${streak}-day streak. Discipline forged into identity.`;
+    } else if (completions >= 50) {
+        title       = pick(["Mission Centurion", "The Executor", "Task Conqueror"]);
+        description = `Conquered ${completions} missions. Each one a brick in the foundation.`;
+    } else if (focusSessions >= 10) {
+        title       = pick(["Flow State Initiate", "The Focused", "Deep Work Devotee"]);
+        description = `Survived ${focusSessions} focus sessions. The mind sharpened by fire.`;
+    } else {
+        title       = pick(["Trailblazer", "The Beginning", "First Light"]);
+        description = "Every legend starts somewhere. This is where yours began.";
+    }
+
+    return {
+        id: `token_ai_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        title,
+        description,
+        rarity,
+        earnedAt: new Date().toISOString(),
+    };
+}
+
+const HOF_DESCRIPTION_TEMPLATES = [
+    (title, n) => `After ${n} subtask${n !== 1 ? "s" : ""} conquered, ${title} stands complete.`,
+    (title)    => `The mission '${title}' has been vanquished.`,
+    (title, n) => `Epic victory: ${title} — ${n} challenge${n !== 1 ? "s" : ""} overcome.`,
+    (title)    => `Against all odds, '${title}' fell before you.`,
+    (title, n) => `${n} obstacle${n !== 1 ? "s" : ""} faced. ${n !== 1 ? "All" : "It"} defeated. Mission: ${title}.`,
+    (title)    => `The legend of '${title}' is now sealed in history.`,
+];
+
+function pickHofDescription(title, subtaskCount) {
+    const fn = HOF_DESCRIPTION_TEMPLATES[Math.floor(Math.random() * HOF_DESCRIPTION_TEMPLATES.length)];
+    return fn(title, subtaskCount);
+}
+
+function computeEpicRarity(epic) {
+    const total = epic.subtasks ? epic.subtasks.length : 0;
+    const completed = epic.subtasks ? epic.subtasks.filter((s) => s.completed).length : 0;
+    const allDone = total > 0 && completed === total;
+
+    if (allDone && epic.createdAt) {
+        const created = new Date(epic.createdAt);
+        const finished = epic.completedAt ? new Date(epic.completedAt) : new Date();
+        const days = (finished - created) / (1000 * 60 * 60 * 24);
+        if (days > 7) return "Legendary";
+    }
+    if (allDone) return "Epic";
+    if (completed > 0) return "Rare";
+    return "Common";
+}
+
+function generateAchievementToken(epic) {
+    const title = typeof epic === "string" ? epic : epic.title;
+    const subtaskCount = (epic && epic.subtasks) ? epic.subtasks.filter((s) => s.completed).length : 0;
+    const rarity = (epic && typeof epic === "object") ? computeEpicRarity(epic) : "Common";
     return {
         id: `token_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         title: `Mission Complete: ${title}`,
-        description: `You finished a major project: ${title}.`,
-        rarity: "Legendary",
+        description: pickHofDescription(title, subtaskCount),
+        rarity,
+        earnedAt: new Date().toISOString()
+    };
+}
+
+function generateManualToken(title) {
+    return {
+        id: `token_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        title,
+        description: pickHofDescription(title, 0),
+        rarity: "Common",
         earnedAt: new Date().toISOString()
     };
 }
@@ -1647,16 +3848,44 @@ function updateStreak(completedAtIso) {
         state.profile.streakDays = Math.max(1, state.profile.streakDays);
     } else {
         const yesterday = new Date(Date.now() - 86400000).toDateString();
-        state.profile.streakDays = last === yesterday ? state.profile.streakDays + 1 : 1;
+        if (last === yesterday) {
+            state.profile.streakDays = state.profile.streakDays + 1;
+        } else {
+            // Streak would break — check for shield
+            if (state.loot?.streakShield) {
+                state.loot.streakShield = false; // consume the shield
+                // Streak is maintained (don't reset it)
+            } else {
+                state.profile.streakDays = 1;
+            }
+        }
     }
     state.profile.lastCompletedDate = completedAtIso;
 }
 
 function gainXP(amount) {
-    state.profile.xp += amount;
+    const multiplier = state.profile.prestigeMultiplier ?? 1.0;
+    const scaled = amount > 0 ? Math.round(amount * multiplier) : amount;
+    const prevLevel = state.profile.level;
+    state.profile.xp += scaled;
     while (state.profile.xp >= 100) {
         state.profile.xp -= 100;
         state.profile.level += 1;
+    }
+    // Clamp XP to 0 (no level-down on negative habits)
+    if (state.profile.xp < 0) state.profile.xp = 0;
+    // Trigger class selection if newly eligible
+    if (state.profile.level >= 5 && state.profile.class === null) {
+        setTimeout(showClassSelectionModal, 400);
+    }
+    // Trigger crew unlocks for any levels crossed
+    if (state.profile.level > prevLevel) {
+        checkCrewUnlocks(prevLevel, state.profile.level);
+    }
+    // Trigger prestige button visibility update
+    const prestigeBtn = document.getElementById('prestige-btn');
+    if (prestigeBtn) {
+        prestigeBtn.classList.toggle('hidden', state.profile.level < 20);
     }
 }
 
@@ -1752,6 +3981,9 @@ async function login() {
         showAppShell();
         render();
         fetchSimilarUsers();
+        loadEntitlements();
+        loadFriends();
+        loadCommunityChallenges();
     }
 }
 
@@ -1773,6 +4005,189 @@ async function resetPassword() {
         body: JSON.stringify({ email })
     });
     authMessage.innerText = res.ok ? "Reset email sent. Check your inbox." : "Reset request failed.";
+}
+
+// ─── Challenges ───────────────────────────────────────────────────────────────
+function addChallenge() {
+    const titleEl  = document.getElementById("challenge-title");
+    const typeEl   = document.getElementById("challenge-type");
+    const targetEl = document.getElementById("challenge-target");
+    const dlEl     = document.getElementById("challenge-deadline");
+
+    const title  = titleEl.value.trim();
+    const target = parseInt(targetEl.value, 10);
+    if (!title) { titleEl.focus(); return; }
+    if (!target || target < 1) { targetEl.focus(); return; }
+
+    const challenge = {
+        id:          `ch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        title,
+        type:        typeEl.value,
+        target,
+        deadline:    dlEl.value || null,
+        createdAt:   new Date().toISOString(),
+        completedAt: null,
+        claimed:     false,
+        xpReward:    calcChallengeXp(target),
+        // snapshot: XP at creation time, used to measure xp_earned delta
+        xpAtCreation: state.profile.xp + (state.profile.level - 1) * 100
+    };
+
+    if (!Array.isArray(state.challenges)) state.challenges = [];
+    state.challenges.push(challenge);
+    titleEl.value  = "";
+    targetEl.value = "";
+    dlEl.value     = "";
+    touchState();
+    persistAndRender();
+}
+
+function calcChallengeXp(target) {
+    // 50 XP for low targets, up to 150 XP for large ones
+    if (target >= 50) return 150;
+    if (target >= 20) return 100;
+    if (target >= 10) return 75;
+    return 50;
+}
+
+const CHALLENGE_TYPE_LABELS = {
+    tasks_completed:  "Tasks completed",
+    habits_completed: "Habits done today",
+    focus_sessions:   "Focus sessions",
+    xp_earned:        "XP earned"
+};
+
+function getChallengeProgress(challenge) {
+    const s = state;
+    const since = challenge.createdAt;
+
+    switch (challenge.type) {
+        case "tasks_completed": {
+            return s.tasks.filter(
+                t => t.status === "completed" && t.completedAt && t.completedAt >= since
+            ).length;
+        }
+        case "habits_completed": {
+            const today = new Date().toISOString().slice(0, 10);
+            let count = 0;
+            (s.habits || []).forEach(h => {
+                if (Array.isArray(h.completedDates) && h.completedDates.includes(today)) count++;
+            });
+            return count;
+        }
+        case "focus_sessions": {
+            return (s.focus && Array.isArray(s.focus.sessions))
+                ? s.focus.sessions.filter(
+                    sess => sess.type === "work" && sess.date && sess.date >= since
+                  ).length
+                : 0;
+        }
+        case "xp_earned": {
+            const currentTotal = s.profile.xp + (s.profile.level - 1) * 100;
+            return Math.max(0, currentTotal - (challenge.xpAtCreation || 0));
+        }
+        default:
+            return 0;
+    }
+}
+
+function checkChallenges() {
+    if (!Array.isArray(state.challenges)) return;
+    let changed = false;
+    state.challenges.forEach(ch => {
+        if (ch.completedAt || ch.claimed) return;
+        const progress = getChallengeProgress(ch);
+        if (progress >= ch.target) {
+            ch.completedAt = new Date().toISOString();
+            changed = true;
+        }
+    });
+    if (changed) touchState();
+}
+
+function claimChallenge(id) {
+    if (!Array.isArray(state.challenges)) return;
+    const ch = state.challenges.find(c => c.id === id);
+    if (!ch || ch.claimed || !ch.completedAt) return;
+    ch.claimed = true;
+    gainXP(ch.xpReward);
+    checkAchievements();
+    touchState();
+    persistAndRender();
+}
+
+function deleteChallenge(id) {
+    if (!Array.isArray(state.challenges)) return;
+    state.challenges = state.challenges.filter(c => c.id !== id);
+    touchState();
+    persistAndRender();
+}
+
+function renderChallenges() {
+    const listEl = document.getElementById("challenge-list");
+    if (!listEl) return;
+    listEl.innerHTML = "";
+
+    if (!Array.isArray(state.challenges) || state.challenges.length === 0) {
+        listEl.innerHTML = `<div class="hint-row">No challenges yet — create one above.</div>`;
+        return;
+    }
+
+    // Sort: active first, then claimed/completed
+    const sorted = [...state.challenges].sort((a, b) => {
+        if (a.claimed && !b.claimed) return 1;
+        if (!a.claimed && b.claimed) return -1;
+        return new Date(a.createdAt) - new Date(b.createdAt);
+    });
+
+    sorted.forEach(ch => {
+        const progress    = getChallengeProgress(ch);
+        const pct         = Math.min(100, Math.round((progress / ch.target) * 100));
+        const isComplete  = !!ch.completedAt;
+        const isClaimed   = !!ch.claimed;
+        const isExpired   = ch.deadline && !isComplete && new Date(ch.deadline + "T23:59:59") < new Date();
+        const typeLabel   = CHALLENGE_TYPE_LABELS[ch.type] || ch.type;
+
+        let deadlineHtml = "";
+        if (ch.deadline) {
+            const formatted = new Date(ch.deadline + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+            if (isExpired) {
+                deadlineHtml = `<span class="challenge-deadline expired">Expired · ${formatted}</span>`;
+            } else {
+                deadlineHtml = `<span class="challenge-deadline">Deadline: ${formatted}</span>`;
+            }
+        }
+
+        let actionHtml = "";
+        if (isClaimed) {
+            actionHtml = `<span class="challenge-claimed-badge">Claimed +${ch.xpReward} XP</span>`;
+        } else if (isComplete) {
+            actionHtml = `<button class="btn-primary challenge-claim-btn" data-id="${ch.id}">Claim +${ch.xpReward} XP</button>`;
+        }
+
+        const card = document.createElement("div");
+        card.className = `challenge-card${isClaimed ? " challenge-card--claimed" : ""}${isComplete && !isClaimed ? " challenge-card--complete" : ""}`;
+        card.innerHTML = `
+            <div class="challenge-card-header">
+                <span class="challenge-card-title">${ch.title}</span>
+                <button class="challenge-delete-btn" data-id="${ch.id}" title="Delete challenge">&times;</button>
+            </div>
+            <div class="challenge-meta">${typeLabel} &middot; Target: ${ch.target}${deadlineHtml ? " &middot; " : ""}${deadlineHtml}</div>
+            <div class="challenge-progress-bar">
+                <div class="challenge-progress-fill" style="width:${pct}%"></div>
+            </div>
+            <div class="challenge-progress-footer">
+                <span class="challenge-progress-text">${progress} / ${ch.target} (${pct}%)</span>
+                ${actionHtml}
+            </div>
+        `;
+
+        card.querySelector(".challenge-delete-btn").addEventListener("click", () => deleteChallenge(ch.id));
+        const claimBtn = card.querySelector(".challenge-claim-btn");
+        if (claimBtn) claimBtn.addEventListener("click", () => claimChallenge(ch.id));
+
+        listEl.appendChild(card);
+    });
 }
 
 // ─── Profile ──────────────────────────────────────────────────────────────────
@@ -2143,9 +4558,297 @@ function cap(str, max) {
     return str.length > max ? str.slice(0, max - 1) + "…" : str;
 }
 
+// ─── General Toast ────────────────────────────────────────────────────────────
+let _toastTimer = null;
+function showToast(msg, duration = 3000) {
+    const el = document.getElementById("app-toast");
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add("visible");
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => el.classList.remove("visible"), duration);
+}
+
+// ─── Nav Labels ───────────────────────────────────────────────────────────────
+const NAV_LABELS = {
+    dashboard: "Home", missions: "Missions", epics: "Epics",
+    achievements: "Awards", hall: "Hall", profile: "Profile",
+    pro: "Pro", roadmap: "Roadmap", habits: "Habits",
+    focus: "Focus", quests: "Quests", stats: "Stats",
+    skills: "Skills", loot: "Loot", mood: "Mood", calendar: "Calendar",
+};
+document.querySelectorAll(".nav-item[data-page]").forEach(btn => {
+    const span = document.createElement("span");
+    span.className = "nav-label";
+    span.textContent = NAV_LABELS[btn.dataset.page] || btn.dataset.tooltip || "";
+    btn.appendChild(span);
+});
+
+// ─── Mobile More Sheet ────────────────────────────────────────────────────────
+(function initMoreSheet() {
+    const overlay = document.getElementById("more-sheet-overlay");
+    const grid    = document.getElementById("more-sheet-grid");
+    const moreBtn = document.getElementById("nav-more-btn");
+    if (!overlay || !grid || !moreBtn) return;
+
+    // Build sheet items from non-primary nav buttons
+    const nonPrimary = [...document.querySelectorAll(".nav-item[data-page]:not([data-mobile-primary])")];
+    nonPrimary.forEach(btn => {
+        const item = document.createElement("button");
+        item.className = "more-sheet-item";
+        item.dataset.page = btn.dataset.page;
+        item.innerHTML = btn.querySelector(".nav-icon").outerHTML +
+            `<span>${NAV_LABELS[btn.dataset.page] || btn.dataset.tooltip}</span>`;
+        item.addEventListener("click", () => {
+            showPage(btn.dataset.page);
+            closeMoreSheet();
+        });
+        grid.appendChild(item);
+    });
+
+    moreBtn.addEventListener("click", () => overlay.classList.add("open"));
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) closeMoreSheet(); });
+
+    function closeMoreSheet() { overlay.classList.remove("open"); }
+    window.closeMoreSheet = closeMoreSheet;
+})();
+
+// ─── Onboarding ───────────────────────────────────────────────────────────────
+(function initOnboarding() {
+    if (localStorage.getItem("moonOnboarded")) return;
+    const overlay = document.getElementById("onboard-overlay");
+    if (!overlay) return;
+
+    let step = 1;
+    const totalSteps = 3;
+
+    function show() { overlay.classList.add("open"); }
+    function dismiss() {
+        overlay.classList.remove("open");
+        localStorage.setItem("moonOnboarded", "1");
+    }
+    function goTo(n) {
+        overlay.querySelectorAll(".onboard-step").forEach(s => s.classList.remove("active"));
+        overlay.querySelectorAll(".onboard-dot").forEach(d => d.classList.remove("active"));
+        const stepEl = overlay.querySelector(`.onboard-step[data-step="${n}"]`);
+        const dotEl  = overlay.querySelector(`.onboard-dot[data-dot="${n}"]`);
+        if (stepEl) stepEl.classList.add("active");
+        if (dotEl)  dotEl.classList.add("active");
+        const nextBtn = document.getElementById("onboard-next");
+        if (nextBtn) nextBtn.textContent = n < totalSteps ? "Next →" : "Let's Go! 🚀";
+    }
+
+    document.getElementById("onboard-skip")?.addEventListener("click", dismiss);
+    document.getElementById("onboard-next")?.addEventListener("click", () => {
+        step < totalSteps ? goTo(++step) : dismiss();
+    });
+
+    // Show only after app shell is visible (first login check deferred)
+    const origShowApp = window.showAppShell;
+    setTimeout(() => {
+        if (!localStorage.getItem("moonOnboarded")) show();
+    }, 4000);
+})();
+
+// ─── Friends System ───────────────────────────────────────────────────────────
+async function loadFriends() {
+    const token = config.storage.authToken;
+    if (!token) return;
+    try {
+        const [frRes, pendRes] = await Promise.all([
+            fetch(`${config.storage.baseUrl}/api/friends`, { headers: { Authorization: `Bearer ${token}` } }),
+            fetch(`${config.storage.baseUrl}/api/friends/pending`, { headers: { Authorization: `Bearer ${token}` } }),
+        ]);
+        const { friends = [] }  = frRes.ok   ? await frRes.json()   : {};
+        const { pending = [] }  = pendRes.ok  ? await pendRes.json() : {};
+        renderFriends(friends, pending);
+    } catch (_) {}
+}
+
+function renderFriends(friends, pending) {
+    const el = document.getElementById("friends-list");
+    if (!el) return;
+
+    let html = "";
+    if (pending.length) {
+        html += `<div class="section-label" style="margin:12px 0 8px;font-size:11px">Pending Invites</div>`;
+        pending.forEach(inv => {
+            html += `<div class="pending-invite-item">
+                <span class="pending-from">🛸 Invite from <strong>${inv.from_email}</strong></span>
+                <button class="btn-secondary" style="padding:5px 14px;font-size:12px" onclick="acceptInvite('${inv.id}')">Accept</button>
+            </div>`;
+        });
+    }
+    if (friends.length) {
+        html += `<div class="section-label" style="margin:12px 0 8px;font-size:11px">Crew</div>`;
+        friends.forEach(f => {
+            html += `<div class="friend-item"><span class="friend-email">🧑‍🚀 ${f.friend_email}</span></div>`;
+        });
+    }
+    if (!friends.length && !pending.length) {
+        html = `<div class="hint-row">No crew yet — invite a friend above.</div>`;
+    }
+    el.innerHTML = html;
+}
+
+async function sendFriendInvite() {
+    const emailEl = document.getElementById("invite-email");
+    const email = emailEl?.value.trim();
+    if (!email) return;
+    const token = config.storage.authToken;
+    if (!token) { showToast("Sign in to invite friends."); return; }
+    try {
+        const res = await fetch(`${config.storage.baseUrl}/api/friends/invite`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ toEmail: email })
+        });
+        if (res.ok) {
+            showToast(`Invite sent to ${email}!`);
+            if (emailEl) emailEl.value = "";
+        } else {
+            showToast("Could not send invite.");
+        }
+    } catch (_) { showToast("Could not send invite."); }
+}
+
+async function acceptInvite(inviteId) {
+    const token = config.storage.authToken;
+    if (!token) return;
+    try {
+        const res = await fetch(`${config.storage.baseUrl}/api/friends/accept`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ inviteId })
+        });
+        if (res.ok) { showToast("Crew member added!"); loadFriends(); }
+        else showToast("Could not accept invite.");
+    } catch (_) {}
+}
+
+document.getElementById("invite-btn")?.addEventListener("click", sendFriendInvite);
+
+// ─── Community Challenges ─────────────────────────────────────────────────────
+async function loadCommunityChallenges() {
+    const token = config.storage.authToken;
+    if (!token) return;
+    try {
+        const res = await fetch(`${config.storage.baseUrl}/api/challenges/community`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) return;
+        const { challenges } = await res.json();
+        renderCommunityChallenges(challenges);
+    } catch (_) {}
+}
+
+function renderCommunityChallenges(challenges) {
+    let el = document.getElementById("community-challenge-list");
+    if (!el) return;
+    if (!challenges.length) {
+        el.innerHTML = `<div class="hint-row">No community challenges yet. Share one!</div>`;
+        return;
+    }
+    el.innerHTML = challenges.map(ch => `
+        <div class="community-challenge-item">
+            <div class="community-challenge-info">
+                <div class="community-challenge-title">${ch.title}</div>
+                <div class="community-challenge-meta">${ch.goal} · ${ch.members} member${ch.members !== 1 ? "s" : ""}</div>
+            </div>
+            <button class="btn-secondary" style="padding:5px 14px;font-size:12px;flex-shrink:0" onclick="joinCommunityChallenge('${ch.id}')">Join</button>
+        </div>
+    `).join("");
+}
+
+async function joinCommunityChallenge(challengeId) {
+    const token = config.storage.authToken;
+    if (!token) { showToast("Sign in to join challenges."); return; }
+    try {
+        const res = await fetch(`${config.storage.baseUrl}/api/challenges/join`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ challengeId })
+        });
+        if (res.ok) { showToast("Joined challenge!"); loadCommunityChallenges(); }
+        else showToast("Could not join challenge.");
+    } catch (_) {}
+}
+
+// ─── Entitlements & Pro Checkout ──────────────────────────────────────────────
+async function loadEntitlements() {
+    const token = config.storage.authToken;
+    if (!token) return;
+    try {
+        const res = await fetch(`${config.storage.baseUrl}/api/entitlements`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) return;
+        const { features } = await res.json();
+        Object.assign(config.premium, features);
+        renderPro();
+    } catch (_) {}
+}
+
+async function startCheckout(plan) {
+    const token = config.storage.authToken;
+    if (!token) { showToast("Sign in to upgrade."); return; }
+    try {
+        const res = await fetch(`${config.storage.baseUrl}/api/checkout`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ plan })
+        });
+        const data = await res.json();
+        if (data.url) {
+            window.location.href = data.url;
+        } else {
+            showToast(data.error === "stripe_not_configured" ? "Payments not configured yet." : "Checkout failed.");
+        }
+    } catch (_) {
+        showToast("Could not start checkout.");
+    }
+}
+
+function renderPro() {
+    document.querySelectorAll(".premium-card[data-feature]").forEach(card => {
+        const feature = card.dataset.feature;
+        const unlocked = !!config.premium[feature];
+        card.classList.toggle("locked", !unlocked);
+        card.classList.toggle("unlocked", unlocked);
+        const btn = card.querySelector(".btn-premium");
+        if (btn) {
+            btn.textContent = unlocked ? "✓ Active" : "Upgrade ✦";
+            btn.disabled = unlocked;
+        }
+    });
+}
+
+// Wire Upgrade buttons — read plan from card's data-plan or default to commander
+document.getElementById("page-pro").addEventListener("click", (e) => {
+    const btn = e.target.closest(".btn-premium");
+    if (!btn || btn.disabled) return;
+    const plan = btn.closest("[data-plan]")?.dataset.plan || "commander";
+    startCheckout(plan);
+});
+
+// Handle return from Stripe checkout
+(function handleCheckoutReturn() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") === "success") {
+        history.replaceState({}, "", "/");
+        setTimeout(() => {
+            loadEntitlements();
+            showToast("🎉 You're now Pro! Features unlocked.");
+        }, 1000);
+    } else if (params.get("checkout") === "cancel") {
+        history.replaceState({}, "", "/");
+    }
+})();
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
     initGalaxy();
+    initThemeSwitcher();
 
     try {
         const loaded = await storage.load();
@@ -2174,6 +4877,9 @@ async function init() {
         showAppShell();
         render();
         fetchSimilarUsers();
+        loadEntitlements();
+        loadFriends();
+        loadCommunityChallenges();
     } else {
         showAuthScreen();
         render();

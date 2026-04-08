@@ -32,6 +32,9 @@
   var animId = null;
   var animFrame = 0;
 
+  // Last rendered node positions — updated every draw, used for click detection
+  var lastNodePositions = [];
+
   // ---------------------------------------------------------------------------
   // Default state
   // ---------------------------------------------------------------------------
@@ -245,6 +248,9 @@
 
     var nodes = getNodePositions(cx, cy);
 
+    // Persist node positions for click detection
+    lastNodePositions = nodes;
+
     drawConnectingLines(ctx, nodes, state.skills);
 
     nodes.forEach(function (node) {
@@ -344,11 +350,203 @@
     canvas.width  = container.clientWidth || 400;
     canvas.height = CANVAS_HEIGHT;
 
+    // Bind click listener (idempotent)
+    bindCanvasClick(canvas, container);
+
     // Render the static stats row
     renderStatsRow(container, state);
 
     // Start (or restart) the animation loop
     startAnimation(canvas, state);
+  }
+
+  // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Skill XP Toast
+  // ---------------------------------------------------------------------------
+
+  function showSkillToast(skillKey, xpGain, newLevel) {
+    var skill = SKILLS[skillKey];
+    if (!skill) return;
+
+    var toast = document.createElement("div");
+    toast.className = "skill-xp-toast";
+
+    var lvlUpLine = newLevel
+      ? '<span class="skill-toast-lvl">Level up! Now Lv ' + newLevel + ' \u2b06</span>'
+      : "";
+
+    toast.innerHTML =
+      '<span class="skill-toast-emoji">' + skill.emoji + "</span>" +
+      '<span class="skill-toast-text">' +
+        '<span class="skill-toast-label" style="color:' + skill.color + ';">' + skill.label + "</span>" +
+        '<span class="skill-toast-xp" style="color:' + skill.color + ';">+' + xpGain + " XP</span>" +
+        lvlUpLine +
+      "</span>";
+
+    document.body.appendChild(toast);
+
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        toast.classList.add("skill-xp-toast--visible");
+      });
+    });
+
+    setTimeout(function () {
+      toast.classList.remove("skill-xp-toast--visible");
+      toast.addEventListener("transitionend", function () { toast.remove(); }, { once: true });
+      setTimeout(function () { if (toast.parentNode) toast.remove(); }, 500);
+    }, 2800);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Skill category → task category mapping (human readable)
+  // ---------------------------------------------------------------------------
+
+  var SKILL_CATEGORY_LABELS = {
+    health:   "Health tasks",
+    work:     "Work tasks",
+    learning: "Learning tasks",
+    finance:  "Finance tasks",
+    life:     "Life tasks",
+  };
+
+  // Milestone messages by level thresholds
+  function getMilestoneHint(nextLevel) {
+    if (nextLevel <= 2)  return "Level " + nextLevel + ": Getting started — every rep counts.";
+    if (nextLevel <= 4)  return "Level " + nextLevel + ": Building momentum. Keep the streak alive.";
+    if (nextLevel === 5) return "Level " + nextLevel + ": Expert status unlocked — you're serious about this.";
+    if (nextLevel <= 9)  return "Level " + nextLevel + ": Advanced practitioner. The gap is widening.";
+    if (nextLevel === 10) return "Level " + nextLevel + ": Master tier. Legendary commitment.";
+    return "Level " + nextLevel + ": Uncharted territory. Push the limit.";
+  }
+
+  // ---------------------------------------------------------------------------
+  // Skill Detail Panel
+  // ---------------------------------------------------------------------------
+
+  function closeSkillDetail() {
+    var existing = document.getElementById("skill-detail-panel");
+    if (existing) {
+      existing.classList.remove("skill-detail-panel--visible");
+      existing.addEventListener("transitionend", function handler() {
+        existing.removeEventListener("transitionend", handler);
+        if (existing.parentNode) existing.parentNode.removeChild(existing);
+      });
+      // Fallback removal
+      setTimeout(function () { if (existing.parentNode) existing.parentNode.removeChild(existing); }, 400);
+    }
+  }
+
+  function showSkillDetail(skillKey, container) {
+    // Remove any existing panel
+    closeSkillDetail();
+
+    var state = window.APP.getState();
+    ensureSkills(state);
+
+    var skill    = SKILLS[skillKey];
+    var skillData = state.skills[skillKey];
+    var color    = skill.color;
+
+    var level      = skillData.level;
+    var xp         = skillData.xp;
+    var totalXp    = (level - 1) * XP_PER_LEVEL + xp;
+    var xpPct      = Math.round((xp / XP_PER_LEVEL) * 100);
+    var nextLevel  = level + 1;
+    var milestone  = getMilestoneHint(nextLevel);
+    var categories = SKILL_CATEGORY_LABELS[skillKey] || skillKey + " tasks";
+
+    var panel = document.createElement("div");
+    panel.id = "skill-detail-panel";
+    panel.className = "skill-detail-panel";
+
+    panel.innerHTML = [
+      '<button class="skill-detail-close" id="skill-detail-close" aria-label="Close">&#x2715;</button>',
+      '<div class="skill-detail-emoji">', skill.emoji, '</div>',
+      '<div class="skill-detail-name" style="color:', color, ';">', skill.label, '</div>',
+      '<div class="skill-detail-level">Level ', level, '</div>',
+      '<div class="skill-detail-xp-label">',
+        '<span>', xp, ' / ', XP_PER_LEVEL, ' XP to next level</span>',
+        '<span class="skill-detail-xp-pct">', xpPct, '%</span>',
+      '</div>',
+      '<div class="skill-detail-xp-track">',
+        '<div class="skill-detail-xp-fill" style="width:', xpPct, '%;background:', color, ';"></div>',
+      '</div>',
+      '<div class="skill-detail-row">',
+        '<span class="skill-detail-meta-label">Powered by</span>',
+        '<span class="skill-detail-meta-value">', categories, '</span>',
+      '</div>',
+      '<div class="skill-detail-row">',
+        '<span class="skill-detail-meta-label">Total XP earned</span>',
+        '<span class="skill-detail-meta-value" style="color:', color, ';">', totalXp, ' XP</span>',
+      '</div>',
+      '<div class="skill-detail-milestone">',
+        '<span class="skill-detail-milestone-icon">&#127919;</span>',
+        '<span>', milestone, '</span>',
+      '</div>',
+    ].join("");
+
+    container.appendChild(panel);
+
+    // Trigger fade-in on next frame
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        panel.classList.add("skill-detail-panel--visible");
+      });
+    });
+
+    // Close button
+    document.getElementById("skill-detail-close").addEventListener("click", function () {
+      closeSkillDetail();
+    });
+
+    // Close on outside click
+    function onOutsideClick(e) {
+      if (!panel.contains(e.target) && e.target.id !== "skill-tree-canvas") {
+        closeSkillDetail();
+        document.removeEventListener("click", onOutsideClick);
+      }
+    }
+    setTimeout(function () {
+      document.addEventListener("click", onOutsideClick);
+    }, 100);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Canvas click handler — wire up once per canvas instance
+  // ---------------------------------------------------------------------------
+
+  function bindCanvasClick(canvas, container) {
+    if (canvas.dataset.clickBound) return;
+    canvas.dataset.clickBound = "1";
+
+    canvas.style.cursor = "pointer";
+
+    canvas.addEventListener("click", function (e) {
+      var rect = canvas.getBoundingClientRect();
+      // Scale from CSS pixels to canvas pixels
+      var scaleX = canvas.width  / rect.width;
+      var scaleY = canvas.height / rect.height;
+      var cx = (e.clientX - rect.left)  * scaleX;
+      var cy = (e.clientY - rect.top)   * scaleY;
+
+      var HIT_RADIUS = 48; // slightly larger than NODE_CIRCLE_RADIUS for comfort
+      var hit = null;
+      for (var i = 0; i < lastNodePositions.length; i++) {
+        var n = lastNodePositions[i];
+        var dx = cx - n.x;
+        var dy = cy - n.y;
+        if (Math.sqrt(dx * dx + dy * dy) <= HIT_RADIUS) {
+          hit = n.key;
+          break;
+        }
+      }
+
+      if (hit) {
+        showSkillDetail(hit, container);
+      }
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -376,6 +574,7 @@
     ensureSkills(state);
 
     var skill = state.skills[skillKey];
+    var levelBefore = skill.level;
     skill.xp += xpGain;
 
     // Chain level-ups
@@ -383,6 +582,9 @@
       skill.xp -= XP_PER_LEVEL;
       skill.level += 1;
     }
+
+    var leveledUp = skill.level > levelBefore;
+    showSkillToast(skillKey, xpGain, leveledUp ? skill.level : null);
 
     window.APP.touchState();
     window.APP.persist();
