@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "serve-static": "npx serve ."
+    "serve-static": "npx serve .",
+    "beta-report": "node beta-report.js"
   },
   "keywords": [
     "productivity",

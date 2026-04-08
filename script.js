@@ -58,7 +58,7 @@ const STATE_VERSION = 4;
 const defaultState = {
     version: STATE_VERSION,
     meta: { lastModified: null, lastSync: null, conflict: false },
-    profile: { xp: 0, level: 1, xpPerTask: 20, streakDays: 0, lastCompletedDate: null },
+    profile: { xp: 0, level: 1, xpPerTask: 20, streakDays: 0, lastCompletedDate: null, loginDays: [] },
     stats: { completionsByCategory: {}, completionsByDifficulty: {}, avgCompletionMs: 0, totalCompletions: 0 },
     tasks: [],
     epics: [],
@@ -448,7 +448,7 @@ function normalizeState(loaded) {
     return {
         version: STATE_VERSION,
         meta: { lastModified: meta.lastModified ?? null, lastSync: meta.lastSync ?? null, conflict: meta.conflict ?? false },
-        profile: { xp: profile.xp ?? 0, level: profile.level ?? 1, xpPerTask: profile.xpPerTask ?? 20, streakDays: profile.streakDays ?? 0, lastCompletedDate: profile.lastCompletedDate ?? null },
+        profile: { xp: profile.xp ?? 0, level: profile.level ?? 1, xpPerTask: profile.xpPerTask ?? 20, streakDays: profile.streakDays ?? 0, lastCompletedDate: profile.lastCompletedDate ?? null, loginDays: Array.isArray(profile.loginDays) ? profile.loginDays : [] },
         stats: { completionsByCategory: stats.completionsByCategory || {}, completionsByDifficulty: stats.completionsByDifficulty || {}, avgCompletionMs: stats.avgCompletionMs ?? 0, totalCompletions: stats.totalCompletions ?? 0 },
         tasks: Array.isArray(loaded.tasks) ? loaded.tasks : [],
         epics: Array.isArray(loaded.epics) ? loaded.epics : [],
@@ -2152,6 +2152,16 @@ async function init() {
         state = normalizeState(loaded && loaded.state ? loaded.state : loaded);
     } catch (err) {
         state = { ...defaultState };
+    }
+
+    const todayStr = new Date().toISOString().split("T")[0];
+    if (!state.profile.loginDays.includes(todayStr)) {
+        state.profile.loginDays.push(todayStr);
+        if (typeof touchState === "function") touchState();
+        if (typeof persistAndRender === "function") {
+            // Delay persistence slightly so everything is bound
+            setTimeout(() => APP.persist(), 500);
+        }
     }
 
     profileName.value = state.publicProfile.displayName || "";
