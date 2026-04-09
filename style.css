@@ -3561,12 +3561,16 @@ button { font-family:inherit; cursor:pointer; }
 /* ─── Apple UX OS Interactions ─────────────────────────────────────────── */
 
 /* 1. Spring Physics */
-.btn-primary, .btn-secondary, .btn-ghost, .btn-premium, .card, .epic-card, .stat-box, .nav-item, .cal-cell, .roadmap-item, .habit-card, .loot-card, .timeline-item {
+.btn-primary, .btn-secondary, .btn-ghost, .btn-premium, .card, .epic-card, .stat-box, .nav-item, .cal-cell, .roadmap-item, .habit-card, .loot-card, .timeline-item, #task-list li, #challenge-list li, .template-item {
     transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease, background-color 0.25s ease, border-color 0.25s ease !important;
 }
 
-.btn-primary:active, .btn-secondary:active, .btn-ghost:active, .btn-premium:active, .card:active, .epic-card:active, .stat-box:active, .nav-item:active, .cal-cell:active, .roadmap-item:active, .habit-card:active, .loot-card:active, .timeline-item:active {
+.btn-primary:active, .btn-secondary:active, .btn-ghost:active, .btn-premium:active, .card:active, .epic-card:active, .stat-box:active, .nav-item:active, .cal-cell:active, .roadmap-item:active, .habit-card:active, .loot-card:active, .timeline-item:active, #challenge-list li:active, .template-item:active {
     transform: scale(0.96) !important;
+}
+
+#task-list li:active {
+    transform: translateX(6px) scale(0.96) !important;
 }
 
 /* 2. Deliberate Depth (Contextual Panes) */
