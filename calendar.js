@@ -162,6 +162,51 @@
       pop.appendChild(list);
     }
 
+    // Quick Add
+    var addWrap = document.createElement("div");
+    addWrap.className = "cal-popover-add";
+    var addInput = document.createElement("input");
+    addInput.type = "text";
+    addInput.placeholder = "Add mission...";
+    var addBtn = document.createElement("button");
+    addBtn.className = "btn-primary";
+    addBtn.style.padding = "0 8px";
+    addBtn.innerHTML = "Add";
+
+    function handleAdd() {
+        var text = addInput.value.trim();
+        if (!text) return;
+        var state = window.APP.getState();
+        if (!state) return;
+        var task = {
+            id: 'task_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+            text: text,
+            category: 'life', // Default
+            difficulty: 'easy',
+            priority: 'medium',
+            status: 'active',
+            createdAt: new Date().toISOString(),
+            completedAt: null,
+            xpValue: 10,
+            dueDate: key,
+            recur: 'none',
+            estimateMins: null
+        };
+        state.tasks.push(task);
+        if (typeof window.APP.touchState === 'function') window.APP.touchState();
+        if (typeof window.APP.persistAndRender === 'function') window.APP.persistAndRender();
+        closePopover();
+    }
+
+    addBtn.addEventListener("click", handleAdd);
+    addInput.addEventListener("keydown", function(e) {
+        if (e.key === "Enter") handleAdd();
+    });
+
+    addWrap.appendChild(addInput);
+    addWrap.appendChild(addBtn);
+    pop.appendChild(addWrap);
+
     // Position relative to the anchor cell
     var rect = anchorEl.getBoundingClientRect();
     var calRect = document.getElementById("page-calendar").getBoundingClientRect();

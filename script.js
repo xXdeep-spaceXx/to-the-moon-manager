@@ -3167,21 +3167,66 @@ function renderEpics() {
         const completed = epic.subtasks.filter((s) => s.completed).length;
         const total = epic.subtasks.length || 1;
         const progress = Math.round((completed / total) * 100);
+        const isSelected = (epic.id === selectedEpicId);
+        
         const card = document.createElement("div");
         card.className = "epic-card";
+        if (isSelected) {
+            card.style.border = "1px solid var(--accent)";
+            card.style.background = "var(--bg-card-hover)";
+        }
+        if (epic.completedAt) {
+            card.style.opacity = "0.7";
+        }
+
+        let subtasksHtml = "";
+        if (epic.subtasks.length > 0) {
+            subtasksHtml = '<div class="epic-subtasks-list" style="margin-top: 12px; margin-bottom: 12px;">';
+            epic.subtasks.forEach(s => {
+                const subStr = s.text.replace(/"/g, '&quot;');
+                subtasksHtml += `
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                        <input type="checkbox" class="epic-sub-cb" data-epicid="${epic.id}" data-subid="${s.id}" ${s.completed ? 'checked' : ''} ${epic.completedAt ? 'disabled' : ''}>
+                        <span style="${s.completed ? 'text-decoration:line-through;color:var(--text-secondary);' : 'color:var(--text-primary);'}">${subStr}</span>
+                    </div>
+                `;
+            });
+            subtasksHtml += '</div>';
+        }
+
         card.innerHTML = `
-            <strong style="font-size:16px">${epic.title}</strong>
+            <strong style="font-size:16px; ${epic.completedAt ? 'text-decoration:line-through;' : ''}">${epic.title} ${epic.completedAt ? '✓' : ''}</strong>
             <div class="hud-sub" style="margin-top:4px">${completed}/${total} subtasks completed</div>
             <div class="epic-progress"><div style="width:${progress}%"></div></div>
+            ${subtasksHtml}
             <div class="epic-actions">
-                <button data-epic="${epic.id}" class="select-epic btn-secondary">Select</button>
-                <button data-epic="${epic.id}" class="complete-epic btn-primary">Complete</button>
+                <button data-epic="${epic.id}" class="select-epic btn-secondary">${isSelected ? 'Selected' : 'Select'}</button>
+                <button data-epic="${epic.id}" class="complete-epic btn-primary" ${epic.completedAt ? 'disabled' : ''}>Complete</button>
                 <button data-epic="${epic.id}" class="hof-epic btn-secondary">→ Hall of Fame</button>
             </div>
         `;
+
+        // Bind subtask checkboxes
+        card.querySelectorAll(".epic-sub-cb").forEach(cb => {
+            cb.addEventListener("change", (e) => {
+                const eId = e.target.getAttribute("data-epicid");
+                const sId = e.target.getAttribute("data-subid");
+                const ep = state.epics.find(epi => epi.id === eId);
+                if (ep) {
+                    const sub = ep.subtasks.find(sb => sb.id === sId);
+                    if (sub) {
+                        sub.completed = e.target.checked;
+                        touchState();
+                        persistAndRender();
+                    }
+                }
+            });
+        });
+
         card.querySelector(".select-epic").addEventListener("click", () => {
             selectedEpicId = epic.id;
-            epicHint.innerText = `Selected: ${epic.title}`;
+            epicHint.innerText = \`Selected: \${epic.title}\`;
+            renderEpics();
         });
         card.querySelector(".complete-epic").addEventListener("click", () => completeEpic(epic.id));
         card.querySelector(".hof-epic").addEventListener("click", () => addHallToken(epic));
@@ -3400,13 +3445,15 @@ function completeTask(taskId) {
 function addEpic() {
     const title = epicInput.value.trim();
     if (!title) return;
+    const newId = `epic_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     state.epics.push({
-        id: `epic_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        id: newId,
         title,
         subtasks: [],
         createdAt: new Date().toISOString(),
         completedAt: null
     });
+    selectedEpicId = newId;
     epicInput.value = "";
     touchState();
     persistAndRender();
@@ -3430,6 +3477,7 @@ function completeEpic(epicId) {
     epic.subtasks.forEach((s) => (s.completed = true));
     gainXP(50);
     checkAchievements();
+    showToast(`Mission Complete: ${epic.title}`);
     touchState();
     persistAndRender();
 }
@@ -3632,6 +3680,8 @@ function planEpic() {
 
 function addHallToken(epic) {
     state.hallOfFame.push(generateAchievementToken(epic));
+    showToast("Added to Hall of Fame!");
+    showPage("hall");
     touchState();
     persistAndRender();
 }
@@ -3984,6 +4034,7 @@ async function login() {
         loadEntitlements();
         loadFriends();
         loadCommunityChallenges();
+        checkMoodPrompt();
     }
 }
 
@@ -4880,6 +4931,7 @@ async function init() {
         loadEntitlements();
         loadFriends();
         loadCommunityChallenges();
+        checkMoodPrompt();
     } else {
         showAuthScreen();
         render();
@@ -4891,6 +4943,17 @@ async function init() {
     setTimeout(() => {
         Object.values(window.APP.modules).forEach(m => { try { m.init && m.init(); } catch(e) { console.warn("module init error", e); } });
     }, 0);
+}
+
+function checkMoodPrompt() {
+    setTimeout(() => {
+        const today = new Date().toISOString().slice(0, 10);
+        const hasMood = state.mood && state.mood.some(m => m.date === today);
+        if (!hasMood) {
+            showPage("mood");
+            showToast("Welcome back! Please check-in your mood.", "info");
+        }
+    }, 1500);
 }
 
 init();

@@ -3410,6 +3410,28 @@ button { font-family:inherit; cursor:pointer; }
     border-color: var(--green);
 }
 
+.cal-popover-add {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+}
+.cal-popover-add input {
+    flex: 1;
+    min-width: 0;
+    padding: 6px;
+    font-size: 0.8rem;
+    border-radius: var(--r);
+    border: 1px solid var(--border);
+    background: var(--bg-body);
+    color: var(--text-1);
+}
+.cal-popover-add button {
+    padding: 0 10px;
+    font-size: 0.8rem;
+}
+
 /* Undated sidebar */
 .cal-undated {
     background: var(--surface);
