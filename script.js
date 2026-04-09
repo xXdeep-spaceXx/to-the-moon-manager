@@ -409,18 +409,17 @@ function positionOrb(name, animate) {
         orb.style.right   = 'auto';
         orb.style.top     = top + 'px';
         orb.style.opacity = '1';
+        orb.style.pointerEvents = 'auto';
     } else {
+        // Hide orb on non-dashboard pages
+        orb.style.opacity = '0';
+        orb.style.pointerEvents = 'none';
+        
+        // We still provide some default layout coordinates so the transition doesn't warp weirdly
         const vw   = document.documentElement.clientWidth;
-        const vh   = document.documentElement.clientHeight;
         const size = Math.min(Math.round(vw * 0.38), 500);
-        const left = Math.min(Math.round(vw * 0.55), vw - size - 40);
-        const top  = Math.round((vh - size) / 2);
         orb.style.width   = size + 'px';
         orb.style.height  = size + 'px';
-        orb.style.left    = left + 'px';
-        orb.style.right   = 'auto';
-        orb.style.top     = top + 'px';
-        orb.style.opacity = '0.9';
     }
 
     if (!animate) {
