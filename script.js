@@ -3225,7 +3225,7 @@ function renderEpics() {
 
         card.querySelector(".select-epic").addEventListener("click", () => {
             selectedEpicId = epic.id;
-            epicHint.innerText = \`Selected: \${epic.title}\`;
+            epicHint.innerText = `Selected: ${epic.title}`;
             renderEpics();
         });
         card.querySelector(".complete-epic").addEventListener("click", () => completeEpic(epic.id));
