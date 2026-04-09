@@ -5,24 +5,24 @@
 
 /* ─── Tokens ─────────────────────────────────────────────────────────────── */
 :root {
-    --bg:          #0d0d14;
-    --bg-raised:   #111119;
-    --surface:     rgba(255,255,255,0.04);
-    --surface-hi:  rgba(255,255,255,0.08);
-    --surface-hov: rgba(255,255,255,0.11);
+    --bg:          #060608;
+    --bg-raised:   #0c0c11;
+    --surface:     rgba(255,255,255,0.03);
+    --surface-hi:  rgba(255,255,255,0.06);
+    --surface-hov: rgba(255,255,255,0.10);
 
-    --text-1: #f0f0f5;
-    --text-2: rgba(240,240,245,0.50);
-    --text-3: rgba(240,240,245,0.26);
+    --text-1: #ffffff;
+    --text-2: rgba(255,255,255,0.60);
+    --text-3: rgba(255,255,255,0.30);
 
-    /* Dominant accents — purple + orange (fabric.vc-inspired) */
-    --purple:      #7c3aed;
-    --purple-lo:   rgba(124,58,237,0.16);
-    --purple-glow: rgba(124,58,237,0.40);
+    /* Dominant accents — hyper-red (Ravi Klaassens inspired) */
+    --purple:      #f01111;
+    --purple-lo:   rgba(240,17,17,0.16);
+    --purple-glow: rgba(240,17,17,0.40);
 
-    --orange:      #ff6520;
-    --orange-lo:   rgba(255,101,32,0.15);
-    --orange-glow: rgba(255,101,32,0.42);
+    --orange:      #ff3333;
+    --orange-lo:   rgba(255,51,51,0.15);
+    --orange-glow: rgba(255,51,51,0.42);
 
     /* Status colors */
     --green:  #30d158;
@@ -69,9 +69,9 @@ body {
 body::before {
     content: '';
     position: fixed; inset: 0;
-    z-index: 0; pointer-events: none;
-    opacity: 0.028;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    z-index: 9999; pointer-events: none;
+    opacity: 0.08; /* Stronger for physical film texture */
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
     background-size: 180px 180px;
 }
 
@@ -3545,4 +3545,15 @@ button { font-family:inherit; cursor:pointer; }
     .cal-day-label {
         font-size: 0.64rem;
     }
+}
+
+/* ─── Scroll Reveal Animations ────────────────────────────────────────── */
+.slide-up-fade {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.slide-up-fade.in-view {
+    opacity: 1;
+    transform: translateY(0);
 }

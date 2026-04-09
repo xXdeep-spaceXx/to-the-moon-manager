@@ -237,13 +237,13 @@ function initGalaxy() {
     const canvas = document.getElementById("galaxy-canvas");
     if (!canvas || !window.THREE) return;
 
-    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false });
+    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true }); // Enable antialiasing for wireframe lines
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setClearColor(0x000000, 0);
 
     const scene  = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 3000);
-    camera.position.z = 600;
+    camera.position.z = 800; // Pull back to see the moon
 
     function resize() {
         camera.aspect = window.innerWidth / window.innerHeight;
@@ -253,26 +253,64 @@ function initGalaxy() {
     window.addEventListener("resize", resize);
     resize();
 
-    // ── main star field ──────────────────────────────────────────────────────
-    const starCount  = 4500;
+    // ── The Crimson Moon (Wireframe Sphere) ──────────────────────────────
+    const moonGeo = new THREE.IcosahedronGeometry(250, 2); // 2 detail creates a nice low-poly sphere
+    const moonMat = new THREE.MeshBasicMaterial({ 
+        color: 0xff1111, 
+        wireframe: true, 
+        transparent: true, 
+        opacity: 0.15 
+    });
+    const moon = new THREE.Mesh(moonGeo, moonMat);
+    moon.position.set(0, -350, 0); // Sit at the bottom edge
+    scene.add(moon);
+
+    // ── Abstract Geometric Rings ─────────────────────────────────────────
+    const rings = new THREE.Group();
+    moon.add(rings);
+    
+    // Ring 1
+    const ringGeo1 = new THREE.TorusGeometry(320, 2, 3, 60);
+    const ringMat1 = new THREE.MeshBasicMaterial({ color: 0xff3333, wireframe: true, transparent: true, opacity: 0.1 });
+    const ring1 = new THREE.Mesh(ringGeo1, ringMat1);
+    ring1.rotation.x = Math.PI / 2;
+    rings.add(ring1);
+    
+    // Ring 2
+    const ringGeo2 = new THREE.TorusGeometry(380, 1, 3, 80);
+    const ringMat2 = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.05 });
+    const ring2 = new THREE.Mesh(ringGeo2, ringMat2);
+    ring2.rotation.x = Math.PI / 3;
+    ring2.rotation.y = Math.PI / 4;
+    rings.add(ring2);
+
+    // ── main star field (Red and White tones) ─────────────────────────────
+    const starCount  = 2500;
     const starPos    = new Float32Array(starCount * 3);
     const starColor  = new Float32Array(starCount * 3);
     const starSize   = new Float32Array(starCount);
 
     for (let i = 0; i < starCount; i++) {
-        // distribute in a large sphere volume
         const r   = 400 + Math.random() * 1200;
         const phi = Math.acos(2 * Math.random() - 1);
         const th  = Math.random() * Math.PI * 2;
         starPos[i*3]   = r * Math.sin(phi) * Math.cos(th);
         starPos[i*3+1] = r * Math.sin(phi) * Math.sin(th);
         starPos[i*3+2] = r * Math.cos(phi);
-        // slightly warm/cool tint
-        const warm = Math.random();
-        starColor[i*3]   = 0.85 + warm * 0.15;
-        starColor[i*3+1] = 0.85 + (1 - warm) * 0.05;
-        starColor[i*3+2] = 0.90 + Math.random() * 0.10;
-        starSize[i] = Math.random() * 1.8 + 0.4;
+        
+        // Red / White / Crimson tint
+        const type = Math.random();
+        if (type > 0.8) {
+            // Stark White
+            starColor[i*3] = 1.0; starColor[i*3+1] = 1.0; starColor[i*3+2] = 1.0;
+        } else if (type > 0.4) {
+            // Crimson Red
+            starColor[i*3] = 1.0; starColor[i*3+1] = 0.1; starColor[i*3+2] = 0.1;
+        } else {
+            // Deep Dark Red overlaying void
+            starColor[i*3] = 0.6; starColor[i*3+1] = 0.05; starColor[i*3+2] = 0.05;
+        }
+        starSize[i] = Math.random() * 2.0 + 0.5;
     }
 
     const starGeo = new THREE.BufferGeometry();
@@ -281,46 +319,11 @@ function initGalaxy() {
     starGeo.setAttribute("size",     new THREE.BufferAttribute(starSize, 1));
 
     const starMat = new THREE.PointsMaterial({
-        size: 1.4, vertexColors: true, transparent: true,
-        opacity: 0.85, sizeAttenuation: true
+        size: 1.5, vertexColors: true, transparent: true,
+        opacity: 0.8, sizeAttenuation: true
     });
     const stars = new THREE.Points(starGeo, starMat);
     scene.add(stars);
-
-    // ── nebula clusters ──────────────────────────────────────────────────────
-    const nebulaDefs = [
-        { hex: 0xff6520, n: 360, spread: 380, pos: [-500,  200, -400] },  // orange — dominant
-        { hex: 0xbf5af2, n: 260, spread: 300, pos: [ 600, -150, -500] },  // purple
-        { hex: 0xff9040, n: 220, spread: 280, pos: [ 200,  400, -300] },  // warm orange
-        { hex: 0x0a84ff, n: 180, spread: 260, pos: [ 100, -500, -200] },  // blue accent
-        { hex: 0xff6520, n: 160, spread: 220, pos: [ 450,  350, -500] },  // orange echo
-        { hex: 0x7c3aed, n: 140, spread: 200, pos: [-300, -300, -600] },  // deep purple
-    ];
-
-    nebulaDefs.forEach(({ hex, n, spread, pos }) => {
-        const geo = new THREE.BufferGeometry();
-        const p   = new Float32Array(n * 3);
-        const c   = new Float32Array(n * 3);
-        const s   = new Float32Array(n);
-        const col = new THREE.Color(hex);
-        for (let i = 0; i < n; i++) {
-            p[i*3]   = pos[0] + (Math.random() - 0.5) * spread;
-            p[i*3+1] = pos[1] + (Math.random() - 0.5) * spread;
-            p[i*3+2] = pos[2] + (Math.random() - 0.5) * spread;
-            const br = 0.3 + Math.random() * 0.7;
-            c[i*3]   = col.r * br;
-            c[i*3+1] = col.g * br;
-            c[i*3+2] = col.b * br;
-            s[i] = Math.random() * 4 + 1.5;
-        }
-        geo.setAttribute("position", new THREE.BufferAttribute(p, 3));
-        geo.setAttribute("color",    new THREE.BufferAttribute(c, 3));
-        geo.setAttribute("size",     new THREE.BufferAttribute(s, 1));
-        scene.add(new THREE.Points(geo, new THREE.PointsMaterial({
-            size: 3.5, vertexColors: true, transparent: true,
-            opacity: 0.28, sizeAttenuation: true
-        })));
-    });
 
     // ── animate ──────────────────────────────────────────────────────────────
     let t = 0;
@@ -328,8 +331,15 @@ function initGalaxy() {
         requestAnimationFrame(animate);
         stars.rotation.y = t * 0.00008;
         stars.rotation.x = t * 0.00003;
-        camera.position.x = Math.sin(t * 0.0004) * 30;
+        
+        moon.rotation.y = t * 0.002;
+        moon.rotation.x = t * 0.001;
+        ring1.rotation.z = t * 0.003;
+        ring2.rotation.y = t * 0.001;
+
+        camera.position.x = Math.sin(t * 0.0004) * 40;
         camera.position.y = Math.cos(t * 0.0003) * 20;
+        camera.lookAt(scene.position);
         renderer.render(scene, camera);
         t++;
     })();
@@ -1466,6 +1476,27 @@ function render() {
     renderCrewSection();
     // Feature module renders
     window.APP.renderHooks.forEach(fn => { try { fn(); } catch(e) { console.warn("render hook error", e); } });
+    
+    // Bind animations to newly rendered DOM elements
+    bindScrollAnimations();
+}
+
+let scrollObserver = null;
+function bindScrollAnimations() {
+    if (!scrollObserver) {
+        scrollObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add("in-view");
+                }
+            });
+        }, { threshold: 0.05, rootMargin: "0px 0px -40px 0px" });
+    }
+    
+    document.querySelectorAll('.card:not(.slide-up-fade), .epic-card:not(.slide-up-fade), .stat-box:not(.slide-up-fade), .timeline-item:not(.slide-up-fade), .loot-card:not(.slide-up-fade), .habit-card:not(.slide-up-fade)').forEach(el => {
+        el.classList.add('slide-up-fade');
+        scrollObserver.observe(el);
+    });
 }
 
 function getDueDateStatus(dueDate) {
