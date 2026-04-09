@@ -677,7 +677,7 @@ button { font-family:inherit; cursor:pointer; }
 @keyframes taskIn { from{opacity:0;transform:translateX(-14px)} to{opacity:1;transform:translateX(0)} }
 
 /* .task-content layout is defined in the Task Subtasks section below */
-.task-text  { font-size:15px; font-weight:500; }
+.task-text  { font-size:15px; font-weight:500; display:inline-block; position:relative; }
 .task-meta  { font-size:11px; color:var(--text-3); text-transform:capitalize; letter-spacing:0.2px; }
 
 .task-actions { display:flex; align-items:center; gap:4px; flex-shrink:0; }
@@ -3584,3 +3584,54 @@ button { font-family:inherit; cursor:pointer; }
     opacity: 0.85;
     pointer-events: none;
 }
+
+/* ─── Vercel / Linear Animation OS Layer ─────────────────────────────── */
+
+/* 1. Dynamic Cursor Spotlight (JS maps --x and --y) */
+.card, .epic-card, #task-list li, .stat-box {
+    position: relative;
+    overflow: hidden;
+}
+.card::before, .epic-card::before, #task-list li::before, .stat-box::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(400px circle at var(--x, 50%) var(--y, 50%), rgba(240, 17, 17, 0.15), transparent 40%);
+    opacity: 0;
+    transition: opacity 0.5s ease;
+    z-index: 10;
+}
+.card:hover::before, .epic-card:hover::before, #task-list li:hover::before, .stat-box:hover::before {
+    opacity: 1;
+}
+
+/* 2. Magnetic Navigation */
+.nav-item, .btn-primary {
+    will-change: transform;
+}
+
+/* 4. Visceral Strike-Through */
+.task-strike-anim {
+    position: relative;
+    color: rgba(255, 255, 255, 0.5); /* Instantly dims */
+}
+.task-strike-anim::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background-color: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    transform-origin: left;
+    animation: visceral-strike 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes visceral-strike {
+    0% { transform: scaleX(0); opacity: 1; background-color: #fff; }
+    40% { transform: scaleX(1); opacity: 1; background-color: #fff; box-shadow: 0 0 12px #fff; }
+    100% { transform: scaleX(1); opacity: 0.8; background-color: var(--accent); }
+}
+

@@ -262,6 +262,17 @@ window.APP = {
         else if (/code|work|project|meeting/i.test(lower)) inferredCategory = "career";
 
         return { title: cleanText.replace(/\s+/g, " "), category: inferredCategory, dueDate: inferredDate, dueDateStr: inferredDateStr };
+    },
+    initMagneticElements: () => {
+        document.querySelectorAll('.nav-item, .btn-primary').forEach(el => {
+            el.addEventListener('mousemove', (e) => {
+                const rect = el.getBoundingClientRect();
+                const x = e.clientX - rect.left - rect.width / 2;
+                const y = e.clientY - rect.top - rect.height / 2;
+                el.style.transform = `translate(${x * 0.3}px, ${y * 0.3}px)`;
+            });
+            el.addEventListener('mouseleave', () => { el.style.transform = ''; });
+        });
     }
 };
 
@@ -467,7 +478,18 @@ function showPage(name) {
     document.querySelectorAll(".page").forEach((p) => p.classList.add("hidden"));
     document.querySelectorAll(".nav-item[data-page]").forEach((i) => i.classList.remove("active"));
     const page = document.getElementById(`page-${name}`);
-    if (page) page.classList.remove("hidden");
+    if (page) {
+        page.classList.remove("hidden");
+        // Staggered UX orchestration
+        const els = page.querySelectorAll(':scope > .section-card, .stat-box, .epic-card, #task-list li');
+        let delay = 0;
+        els.forEach(el => {
+            el.classList.remove('in-view');
+            el.style.transitionDelay = `${delay}s`;
+            delay += 0.04;
+            setTimeout(() => { if(el) el.style.transitionDelay = ''; }, 1000);
+        });
+    }
     const navItem = document.querySelector(`.nav-item[data-page="${name}"]`);
     if (navItem) navItem.classList.add("active");
     if (name === "roadmap") startRoadmapLoop();
@@ -1664,7 +1686,12 @@ function renderTasks() {
 
         if (!isDone) {
             const deleteBtn = li.querySelector(".delete-btn");
-            deleteBtn.addEventListener("click", () => completeTask(task.id));
+            deleteBtn.addEventListener("click", () => {
+                const textSpan = li.querySelector(".task-text");
+                if (textSpan) textSpan.classList.add("task-strike-anim");
+                deleteBtn.style.pointerEvents = "none";
+                setTimeout(() => completeTask(task.id), 350);
+            });
             li.querySelector(".edit-btn").addEventListener("click", () => startInlineEdit(task, li));
 
             // Expand/collapse toggle
@@ -4980,6 +5007,16 @@ document.getElementById("page-pro").addEventListener("click", (e) => {
     }
 })();
 
+/* ─── Advanced UX Spotlights ─────────────────────────────────────────────── */
+document.addEventListener('mousemove', (e) => {
+    const target = e.target.closest('.card, .epic-card, #task-list li, .stat-box');
+    if (target) {
+        const rect = target.getBoundingClientRect();
+        target.style.setProperty('--x', `${e.clientX - rect.left}px`);
+        target.style.setProperty('--y', `${e.clientY - rect.top}px`);
+    }
+});
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
     initGalaxy();
@@ -5041,3 +5078,4 @@ function checkMoodPrompt() {
 }
 
 init();
+if (window.APP && window.APP.initMagneticElements) window.APP.initMagneticElements();
