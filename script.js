@@ -230,6 +230,11 @@ window.APP = {
     taskCompleteHooks: [],
     renderHooks:       [],
     modules:           {},
+    toggleBlur:        (shouldBlur) => {
+        const fn = shouldBlur ? 'add' : 'remove';
+        document.getElementById("app-shell")?.classList[fn]("depth-recede");
+        document.getElementById("galaxy-canvas")?.classList[fn]("depth-recede");
+    },
     parseNaturalTask:  (rawText) => {
         let cleanText = rawText;
         let inferredCategory = null;
@@ -603,6 +608,7 @@ function checkWeeklyReport() {
     modal.querySelector(".wr-motivation").textContent = motivation;
 
     modal.classList.remove("hidden");
+    if(window.APP && window.APP.toggleBlur) window.APP.toggleBlur(true);
     requestAnimationFrame(() => modal.classList.add("wr-visible"));
 
     // Mark shown and persist
@@ -844,11 +850,13 @@ function showCrewUnlockModal(member) {
 
     document.body.appendChild(overlay);
 
+    if(window.APP && window.APP.toggleBlur) window.APP.toggleBlur(true);
     requestAnimationFrame(() => {
         requestAnimationFrame(() => overlay.classList.add('crew-modal-overlay--visible'));
     });
 
     overlay.querySelector('.crew-modal-dismiss').addEventListener('click', () => {
+        if(window.APP && window.APP.toggleBlur) window.APP.toggleBlur(false);
         overlay.classList.remove('crew-modal-overlay--visible');
         overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
         setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 600);
@@ -926,6 +934,7 @@ function showClassSelectionModal() {
     document.body.appendChild(overlay);
 
     // Animate in
+    if(window.APP && window.APP.toggleBlur) window.APP.toggleBlur(true);
     requestAnimationFrame(() => {
         requestAnimationFrame(() => overlay.classList.add('class-modal-overlay--visible'));
     });
@@ -938,7 +947,7 @@ function showClassSelectionModal() {
             persistAndRender();
 
             // Dismiss
-            overlay.classList.remove('class-modal-overlay--visible');
+            if(window.APP && window.APP.toggleBlur) window.APP.toggleBlur(false); overlay.classList.remove('class-modal-overlay--visible');
             overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
             setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 600);
 
@@ -996,11 +1005,13 @@ function showPrestigeModal() {
 
     document.body.appendChild(overlay);
 
+    if(window.APP && window.APP.toggleBlur) window.APP.toggleBlur(true);
     requestAnimationFrame(() => {
         requestAnimationFrame(() => overlay.classList.add('prestige-modal-overlay--visible'));
     });
 
     const close = () => {
+        if(window.APP && window.APP.toggleBlur) window.APP.toggleBlur(false);
         overlay.classList.remove('prestige-modal-overlay--visible');
         overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
         setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 600);
@@ -1242,6 +1253,7 @@ document.getElementById('filter-clear').addEventListener('click', () => {
 // Weekly report dismiss
 document.getElementById("wr-dismiss-btn").addEventListener("click", () => {
     const modal = document.getElementById("weekly-report-modal");
+    if(window.APP && window.APP.toggleBlur) window.APP.toggleBlur(false);
     modal.classList.remove("wr-visible");
     modal.addEventListener("transitionend", () => modal.classList.add("hidden"), { once: true });
 });
