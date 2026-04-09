@@ -90,6 +90,8 @@
       activePopover.remove();
       activePopover = null;
     }
+    document.getElementById("app-shell")?.classList.remove("depth-recede");
+    document.getElementById("galaxy-canvas")?.classList.remove("depth-recede");
   }
 
   function openPopover(anchorEl, dayTasks, key) {
@@ -207,25 +209,27 @@
     addWrap.appendChild(addBtn);
     pop.appendChild(addWrap);
 
-    // Position relative to the anchor cell
+    // Position relative to the window since we are appending to body
     var rect = anchorEl.getBoundingClientRect();
-    var calRect = document.getElementById("page-calendar").getBoundingClientRect();
 
     pop.style.position = "absolute";
 
     // Default: below cell
-    var top  = (rect.bottom - calRect.top) + 6;
-    var left = (rect.left   - calRect.left);
+    var top  = rect.bottom + window.scrollY + 6;
+    var left = rect.left + window.scrollX;
 
     pop.style.top  = top  + "px";
     pop.style.left = left + "px";
 
-    document.getElementById("page-calendar").appendChild(pop);
+    document.body.appendChild(pop);
     activePopover = pop;
+    
+    document.getElementById("app-shell")?.classList.add("depth-recede");
+    document.getElementById("galaxy-canvas")?.classList.add("depth-recede");
 
     // After insertion, clamp right edge
     var popW = pop.offsetWidth;
-    var calW = document.getElementById("page-calendar").offsetWidth;
+    var calW = document.documentElement.clientWidth;
     if (left + popW > calW - 8) {
       pop.style.left = Math.max(0, calW - popW - 8) + "px";
     }

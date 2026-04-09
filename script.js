@@ -229,7 +229,35 @@ window.APP = {
     checkChallenges:  () => checkChallenges(),
     taskCompleteHooks: [],
     renderHooks:       [],
-    modules:           {}
+    modules:           {},
+    parseNaturalTask:  (rawText) => {
+        let cleanText = rawText;
+        let inferredCategory = null;
+        let inferredDate = null;
+        let inferredDateStr = null;
+
+        const lower = cleanText.toLowerCase();
+        const today = new Date();
+
+        if (lower.includes("tomorrow")) {
+            const t = new Date(today);
+            t.setDate(t.getDate() + 1);
+            inferredDate = t.toISOString().split('T')[0];
+            inferredDateStr = "Tomorrow";
+            cleanText = cleanText.replace(/tomorrow/ig, "").trim();
+        } else if (lower.includes("today") || lower.includes("tonight")) {
+            inferredDate = today.toISOString().split('T')[0];
+            inferredDateStr = "Today";
+            cleanText = cleanText.replace(/today|tonight/ig, "").trim();
+        }
+
+        if (/math|science|study|homework|calculus|class|read/i.test(lower)) inferredCategory = "learning";
+        else if (/gym|workout|run|lift|exercise|cardio|sport/i.test(lower)) inferredCategory = "health";
+        else if (/pay|buy|budget|finance|money|invest/i.test(lower)) inferredCategory = "finance";
+        else if (/code|work|project|meeting/i.test(lower)) inferredCategory = "career";
+
+        return { title: cleanText.replace(/\s+/g, " "), category: inferredCategory, dueDate: inferredDate, dueDateStr: inferredDateStr };
+    }
 };
 
 // ─── Galaxy Canvas (Three.js) ─────────────────────────────────────────────────
@@ -1162,6 +1190,15 @@ if (saveTemplateBtn) saveTemplateBtn.addEventListener("click", saveAsTemplate);
 
 addBtn.addEventListener("click", addTask);
 taskInput.addEventListener("keypress", (e) => { if (e.key === "Enter") addTask(); });
+
+// NLP Autocomplete Magic
+taskInput.addEventListener("input", () => {
+    if (window.APP && window.APP.parseNaturalTask) {
+        const res = window.APP.parseNaturalTask(taskInput.value);
+        if (res.category && categorySelect) categorySelect.value = res.category;
+        if (res.dueDate && taskDueInput) taskDueInput.value = res.dueDate;
+    }
+});
 
 // Estimate quick-pick buttons
 document.querySelectorAll(".estimate-quick-btn").forEach(btn => {
@@ -3297,8 +3334,13 @@ function summarizeState(snapshot) {
 
 // ─── Task Actions ─────────────────────────────────────────────────────────────
 function addTask() {
-    const text = taskInput.value.trim();
+    let text = taskInput.value.trim();
     if (!text) return;
+    
+    if (window.APP && window.APP.parseNaturalTask) {
+        text = window.APP.parseNaturalTask(text).title; // Strip keywords like "tomorrow"
+    }
+
     const rawEstimate = taskEstimateInput ? parseInt(taskEstimateInput.value, 10) : NaN;
     const task = {
         id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,

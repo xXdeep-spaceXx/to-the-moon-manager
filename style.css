@@ -3557,3 +3557,26 @@ button { font-family:inherit; cursor:pointer; }
     opacity: 1;
     transform: translateY(0);
 }
+
+/* ─── Apple UX OS Interactions ─────────────────────────────────────────── */
+
+/* 1. Spring Physics */
+.btn-primary, .btn-secondary, .btn-ghost, .btn-premium, .card, .epic-card, .stat-box, .nav-item {
+    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease, background-color 0.25s ease, border-color 0.25s ease !important;
+}
+
+.btn-primary:active, .btn-secondary:active, .btn-ghost:active, .btn-premium:active, .card:active, .epic-card:active, .stat-box:active, .nav-item:active {
+    transform: scale(0.96) !important;
+}
+
+/* 2. Deliberate Depth (Contextual Panes) */
+#app-shell, #galaxy-canvas {
+    transition: filter 0.45s cubic-bezier(0.16, 1, 0.3, 1), transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.45s ease;
+}
+
+.depth-recede {
+    filter: blur(8px) brightness(0.7);
+    transform: scale(0.975);
+    opacity: 0.85;
+    pointer-events: none;
+}
